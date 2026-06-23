@@ -6,6 +6,9 @@
 ## Controle
 ![Alt text](docs/print2.jpeg "Controle")
 
+## Editor
+![Alt text](docs/print3.jpeg "Controle")
+
 Engine web para criar jogos de plataforma com:
 
 - tela TV/host
