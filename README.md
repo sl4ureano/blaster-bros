@@ -1,5 +1,11 @@
 # Platform Web Engine — Run-and-Gun Starter
 
+## GamePlay
+![Alt text](docs/print1.jpeg "GamePlay")
+
+## Controle
+![Alt text](docs/print2.jpeg "Controle")
+
 Engine web para criar jogos de plataforma com:
 
 - tela TV/host
