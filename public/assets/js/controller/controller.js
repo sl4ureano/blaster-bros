@@ -344,6 +344,95 @@ function bindStick(el, key, options={}){
 bindStick(moveStick, "move", { reset:true });
 bindStick(aimStick, "aim", { reset:false });
 
+const keyboardKeys = new Set();
+
+function isTypingTarget(el){
+  if(!el) return false;
+  const tag = String(el.tagName || "").toLowerCase();
+  return tag === "input" || tag === "textarea" || tag === "select" || el.isContentEditable;
+}
+
+function setStickVisual(el, x, y){
+  const knob = el?.querySelector(".knob");
+  if(!knob) return;
+  const rect = el.getBoundingClientRect();
+  const max = (rect.width || 220) * 0.32;
+  knob.style.transform = `translate(${x * max}px, ${y * max}px)`;
+}
+
+function normalizeAxis(x,y){
+  const l = Math.hypot(x,y);
+  if(l <= 0) return {x:0,y:0};
+  if(l <= 1) return {x,y};
+  return {x:x/l,y:y/l};
+}
+
+function refreshKeyboardInput(){
+  const move = normalizeAxis(
+    (keyboardKeys.has("KeyD") ? 1 : 0) - (keyboardKeys.has("KeyA") ? 1 : 0),
+    (keyboardKeys.has("KeyS") ? 1 : 0) - (keyboardKeys.has("KeyW") ? 1 : 0)
+  );
+  input.move.x = move.x;
+  input.move.y = move.y;
+  setStickVisual(moveStick, move.x, move.y);
+
+  const aim = normalizeAxis(
+    (keyboardKeys.has("ArrowRight") ? 1 : 0) - (keyboardKeys.has("ArrowLeft") ? 1 : 0),
+    (keyboardKeys.has("ArrowDown") ? 1 : 0) - (keyboardKeys.has("ArrowUp") ? 1 : 0)
+  );
+  if(aim.x || aim.y){
+    input.aim.x = aim.x;
+    input.aim.y = aim.y;
+  }
+  input.shooting = !!(aim.x || aim.y);
+  setStickVisual(aimStick, input.shooting ? input.aim.x : 0, input.shooting ? input.aim.y : 0);
+  markInputDirty();
+}
+
+async function activateControllerFromKeyboard(){
+  if(startOverlay?.classList.contains("hidden")) return;
+  await fullscreen();
+  startOverlay.classList.add("hidden");
+  resizeSticks();
+  connect();
+}
+
+window.addEventListener("keydown", e => {
+  if(isTypingTarget(e.target)) return;
+  const handled = ["KeyW","KeyA","KeyS","KeyD","ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space"].includes(e.code);
+  if(!handled) return;
+  e.preventDefault();
+
+  activateControllerFromKeyboard();
+
+  const alreadyDown = keyboardKeys.has(e.code);
+  keyboardKeys.add(e.code);
+
+  if(e.code === "KeyW" && !alreadyDown){
+    input.jump = true;
+    input.jumpSeq = (input.jumpSeq || 0) + 1;
+  }
+  if(e.code === "Space" && !alreadyDown){
+    input.grenade = true;
+    input.grenadeSeq = (input.grenadeSeq || 0) + 1;
+  }
+
+  refreshKeyboardInput();
+  send(true);
+}, {passive:false});
+
+window.addEventListener("keyup", e => {
+  if(!keyboardKeys.has(e.code)) return;
+  e.preventDefault();
+  keyboardKeys.delete(e.code);
+
+  if(e.code === "KeyW") input.jump = false;
+  if(e.code === "Space") input.grenade = false;
+
+  refreshKeyboardInput();
+  send(true);
+}, {passive:false});
+
 
 
 function pressJump(e){

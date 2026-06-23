@@ -133,6 +133,7 @@ const names = ["Azul", "Rosa", "Amarelo", "Verde"];
 const START_BOMBS = 5;
 const MAX_BOMBS = 15;
 const GRENADE_COOLDOWN_FRAMES = 18;
+let nextEnemyId = 1;
 
 const defaultWeapon = {
   id:"default",
@@ -347,7 +348,8 @@ const game = {
   difficultyMultiplier:1,
   gameOverHandled:false,
   pausedByConnection:false,
-  pausedByDisconnect:false
+  pausedByDisconnect:false,
+  antiCampCd:0
 };
 
 const levels = [
@@ -1192,7 +1194,7 @@ function loadCustomLevelFromStorage() {
 function loadLevel(index){
   game.levelIndex=index%levels.length;
   game.level=JSON.parse(JSON.stringify(levels[game.levelIndex]));
-  game.cameraX=0; game.time=0; game.levelClear=false; game.transitionTimer=0;
+  game.cameraX=0; game.time=0; game.levelClear=false; game.transitionTimer=0; game.antiCampCd=0;
   game.exitPortal=game.level._editorPortal
     ? {...game.level._editorPortal, active:false}
     : {x:game.level.width-130,y:game.level.portalY,w:86,h:92,active:false};
@@ -1245,13 +1247,155 @@ function syncPlayers(){
   renderStats();
 }
 
-function spawnEnemy(type,x,y){
+function spawnEnemy(type,x,y,opts={}){
   const c=enemyCfg[type];
   const mult = game.difficultyMultiplier || 1;
   const hp = Math.round(c.hp * mult);
-  const e = {type,x,y,w:c.w,h:c.h,vx:0,vy:0,hp,maxHp:hp,speed:c.speed*(0.92+mult*0.12),score:c.score,color:c.color,boss:!!c.boss,alive:true,facing:-1,cd:Math.floor(rand(20,100)/mult),phase:rand(0,6.28),shield:type==="shielder"?70:0,summonCd:Math.floor(rand(160,260))};
+  const miniScale = opts.miniBoss ? (opts.scale || (c.boss ? .52 : 1.18)) : 1;
+  const e = {id:nextEnemyId++,type,x,y,w:Math.round(c.w*miniScale),h:Math.round(c.h*miniScale),vx:0,vy:0,hp,maxHp:hp,speed:c.speed*(0.92+mult*0.12),score:c.score,color:c.color,boss:opts.miniBoss?false:!!c.boss,alive:true,facing:-1,cd:Math.floor(rand(20,100)/mult),phase:rand(0,6.28),shield:type==="shielder"?70:0,summonCd:Math.floor(rand(120,200)),summonedBy:opts.summonedBy||0,antiCamp:!!opts.antiCamp,miniBoss:!!opts.miniBoss,splitParent:opts.splitParent||0};
+  if(e.miniBoss){
+    e.maxHp = opts.hp || Math.max(120, Math.round(hp * .45));
+    e.hp = e.maxHp;
+    e.speed *= c.boss ? 1.65 : 1.22;
+    e.score = Math.max(0, Math.round(e.score * .35));
+  }
+  if(e.boss){
+    e.homeX = x;
+    e.arenaMinX = clamp(x - 520, 0, game.level.width - e.w);
+    e.arenaMaxX = clamp(x + 360, e.arenaMinX + 160, game.level.width - e.w);
+  }
   if(e.boss) resolveBossSpawn(e);
   game.enemies.push(e);
+  return e;
+}
+
+const flyingEnemyTypes = ["drone","bat","jetpack","skull","phantom"];
+const climbingEnemyTypes = ["ninja","leaper","spider","samurai","teleport"];
+
+function standingPlatform(ent){
+  if(!game.level?.platforms) return null;
+  const feetY = ent.y + ent.h;
+  const cx = ent.x + ent.w/2;
+  let best = null;
+  for(const p of game.level.platforms){
+    const r = {x:p[0],y:p[1],w:p[2],h:p[3]};
+    if(cx < r.x - 8 || cx > r.x + r.w + 8) continue;
+    if(feetY >= r.y - 8 && feetY <= r.y + 14) {
+      if(!best || r.y < best.y) best = r;
+    }
+  }
+  return best;
+}
+
+function isElevatedPlatform(platform){
+  return platform && platform.y < 610 && platform.w < (game.level?.width || 3600) * .85;
+}
+
+function isVerticalThreat(e){
+  return e && e.alive && e.hp > 0 && (flyingEnemyTypes.includes(e.type) || climbingEnemyTypes.includes(e.type) || e.boss);
+}
+
+function nearbyVerticalThreats(player){
+  const px = player.x + player.w/2;
+  const py = player.y + player.h/2;
+  return game.enemies.filter(e => {
+    if(!isVerticalThreat(e)) return false;
+    const ex = e.x + e.w/2;
+    const ey = e.y + e.h/2;
+    return Math.abs(ex - px) < 620 && Math.abs(ey - py) < 360;
+  });
+}
+
+function offscreenEntrySide(){
+  const left = game.cameraX > 160;
+  const right = game.cameraX + W < (game.level?.width || W) - 160;
+  if(left && right) return Math.random() < .5 ? -1 : 1;
+  if(left) return -1;
+  if(right) return 1;
+  return 0;
+}
+
+function offscreenXFor(type, side){
+  const cfg = enemyCfg[type];
+  if(side < 0) return game.cameraX - cfg.w - rand(70, 170);
+  return game.cameraX + W + rand(70, 170);
+}
+
+function offscreenPlatformSpawnPoint(player, type, side){
+  const cfg = enemyCfg[type];
+  const base = standingPlatform(player);
+  const minVisible = game.cameraX - cfg.w - 45;
+  const maxVisible = game.cameraX + W + 45;
+  const candidates = (game.level?.platforms || [])
+    .map(p => ({x:p[0],y:p[1],w:p[2],h:p[3]}))
+    .filter(p => isElevatedPlatform(p) && Math.abs((p.y - (base?.y || player.y + player.h))) < 150)
+    .filter(p => side < 0 ? p.x < minVisible : p.x + p.w > maxVisible)
+    .sort((a,b) => {
+      const ax = side < 0 ? a.x + a.w : a.x;
+      const bx = side < 0 ? b.x + b.w : b.x;
+      return Math.abs(ax - (side < 0 ? minVisible : maxVisible)) - Math.abs(bx - (side < 0 ? minVisible : maxVisible));
+    });
+  const platform = candidates[0];
+  if(!platform) return null;
+  const wantedX = offscreenXFor(type, side);
+  const x = clamp(wantedX, platform.x + 12, platform.x + platform.w - cfg.w - 12);
+  if(x > game.cameraX - cfg.w - 20 && x < game.cameraX + W + 20) return null;
+  return {x, y:platform.y - cfg.h - 2};
+}
+
+function spawnVerticalPressure(){
+  if(game.levelClear) return;
+  game.antiCampCd = Math.max(0, (game.antiCampCd || 0) - 1);
+  if(game.antiCampCd > 0) return;
+
+  const alivePlayers = [...game.players.values()].filter(p => p.alive && p.hp > 0);
+  for(const p of alivePlayers){
+    p.platformCamp = isElevatedPlatform(standingPlatform(p)) ? (p.platformCamp || 0) + 1 : 0;
+  }
+  const camper = alivePlayers.find(p => (p.platformCamp || 0) >= 75);
+  if(!camper) return;
+
+  const maxAntiCamp = game.players.size > 1 ? 4 : 2;
+  const antiCampAlive = game.enemies.filter(e => e.alive && e.hp > 0 && e.antiCamp).length;
+  if(antiCampAlive >= maxAntiCamp) return;
+  if(nearbyVerticalThreats(camper).length >= (game.players.size > 1 ? 3 : 2)) return;
+
+  const side = offscreenEntrySide();
+  if(!side) return;
+
+  let useFlyer = Math.random() < .55;
+  let pool = useFlyer ? flyingEnemyTypes : climbingEnemyTypes;
+  const type = pool[Math.floor(Math.random() * pool.length)];
+  const cfg = enemyCfg[type];
+  let x, y;
+
+  if(useFlyer){
+    x = offscreenXFor(type, side);
+    if(x < 0 || x > game.level.width - cfg.w) return;
+    y = clamp(camper.y - rand(80, 190), 90, 500);
+  } else {
+    const point = offscreenPlatformSpawnPoint(camper, type, side);
+    if(!point) {
+      useFlyer = true;
+      const flyerType = flyingEnemyTypes[Math.floor(Math.random() * flyingEnemyTypes.length)];
+      const flyerCfg = enemyCfg[flyerType];
+      x = offscreenXFor(flyerType, side);
+      if(x < 0 || x > game.level.width - flyerCfg.w) return;
+      y = clamp(camper.y - rand(80, 190), 90, 500);
+      spawnEnemy(flyerType, x, y, {antiCamp:true});
+      camper.platformCamp = 0;
+      game.antiCampCd = Math.floor(rand(210, 330));
+      toast("Ameaça aérea chegando!");
+      return;
+    }
+    x = point.x;
+    y = point.y;
+  }
+
+  spawnEnemy(type, x, y, {antiCamp:true});
+  camper.platformCamp = 0;
+  game.antiCampCd = Math.floor(rand(210, 330));
+  toast(useFlyer ? "Ameaça aérea chegando!" : "Inimigo subiu na plataforma!");
 }
 
 function solidAt(ent){
@@ -1296,7 +1440,9 @@ function smartEnemyUnstuck(e, target){
   const blocked = obstacleAhead(e, dir);
   const noGround = e.onGround && !e.boss && !groundAhead(e, dir) && !["drone","bat","skull","phantom","jetpack","boss_dragon"].includes(e.type);
 
-  if(e.onGround && e.ai.jumpCd<=0 && (blocked || noGround || e.ai.stuck>18)){
+  const targetAboveUnreachable = target && target.y + target.h < e.y - 70 && !enemyCanReachUpperPlatform(e);
+
+  if(e.onGround && e.ai.jumpCd<=0 && !targetAboveUnreachable && (blocked || noGround || e.ai.stuck>18)){
     e.vy = noGround ? -10 : -12.5;
     e.x += -dir * 3;
     e.ai.jumpCd = 34;
@@ -1311,10 +1457,14 @@ function smartEnemyUnstuck(e, target){
     e.ai.stuck = 0;
   }
 
-  // se o player está em plataforma acima/abaixo, tenta ajustar movimento com mais intenção
-  if(target && e.onGround && Math.abs((target.y||0)-e.y)>80 && Math.abs((target.x||0)-e.x)<360 && e.ai.jumpCd<=0){
-    e.vy = target.y < e.y ? -13 : e.vy;
+  // Só inimigos ágeis tentam subir atrás do player. O resto evita ficar pulando
+  // embaixo de plataforma sem resolver nada.
+  const climber = ["ninja","samurai","leaper","spider","charger","teleport"].includes(e.type);
+  if(climber && target && e.onGround && target.y + target.h < e.y - 55 && Math.abs((target.x||0)-e.x)<420 && e.ai.jumpCd<=0){
+    e.vy = e.type === "leaper" ? -16 : e.type === "spider" ? -14 : -15;
+    e.vx += Math.sign((target.x+target.w/2) - (e.x+e.w/2)) * Math.max(1.2, (e.speed || 1) * .9);
     e.ai.jumpCd = 40;
+    e.ai.mode = "pounce";
   }
 }
 
@@ -1327,6 +1477,34 @@ function moveEntity(e){
   r=solidAt(e);
   if(r){if(e.vy>0){e.y=r.y-e.h;e.onGround=true;} if(e.vy<0)e.y=r.y+r.h; e.vy=0;}
   e.x=clamp(e.x,0,game.level.width-e.w);
+}
+
+function bossFloorAt(ent){
+  for(const p of game.level.platforms){
+    if(p[2] < ent.w * 1.25) continue;
+    const r={x:p[0],y:p[1],w:p[2],h:p[3]};
+    if(rects(ent,r)) return r;
+  }
+  return null;
+}
+
+function moveBossEntity(e){
+  const minX = Number.isFinite(e.arenaMinX) ? e.arenaMinX : 0;
+  const maxX = Number.isFinite(e.arenaMaxX) ? e.arenaMaxX : game.level.width - e.w;
+  e.x = clamp(e.x + e.vx, minX, maxX);
+  e.y += e.vy;
+  e.onGround = false;
+  const r = bossFloorAt(e);
+  if(r){
+    if(e.vy > 0){
+      e.y = r.y - e.h;
+      e.onGround = true;
+    } else if(e.vy < 0) {
+      e.y = r.y + r.h;
+    }
+    e.vy = 0;
+  }
+  e.y = clamp(e.y, 40, H - e.h - 36);
 }
 
 function nearestPlayer(e){
@@ -1344,34 +1522,84 @@ function enemyAiProfile(e){
   const flyers = new Set(["drone","bat","skull","phantom","jetpack"]);
   const assassins = new Set(["ninja","samurai","charger","leaper","spider"]);
 
-  if(e.boss) return {min:190,max:360,pace:.78,strafe:true};
-  if(ranged.has(e.type)) return {min:250,max:430,pace:.72,strafe:true};
-  if(flyers.has(e.type)) return {min:155,max:285,pace:.82,strafe:true};
-  if(assassins.has(e.type)) return {min:95,max:175,pace:.95,strafe:false};
-  if(e.type === "bruiser" || e.type === "shielder") return {min:85,max:145,pace:.72,strafe:false};
-  return {min:75,max:140,pace:.82,strafe:false};
+  if(e.boss) return {min:190,max:360,pace:.78,role:"boss",iq:5};
+  if(ranged.has(e.type)) return {min:250,max:430,pace:.72,role:"ranged",iq:["sniper","laserbot","teleport","shocker","summoner","medic"].includes(e.type)?4:3};
+  if(flyers.has(e.type)) return {min:155,max:285,pace:.82,role:"flyer",iq:e.type==="phantom"?4:3};
+  if(assassins.has(e.type)) return {min:95,max:175,pace:.95,role:"assassin",iq:["ninja","samurai"].includes(e.type)?4:3};
+  if(e.type === "bruiser" || e.type === "shielder") return {min:85,max:145,pace:.72,role:"heavy",iq:2};
+  return {min:75,max:140,pace:.82,role:"grunt",iq:1};
+}
+
+function enemyCanReachUpperPlatform(e){
+  return e.boss || ["ninja","samurai","leaper","spider","charger","drone","bat","skull","phantom","jetpack","teleport"].includes(e.type);
 }
 
 function enemyMoveIntent(e, target, dx, dy, ad){
   e.ai = e.ai || {};
   const profile = enemyAiProfile(e);
-  const dirToPlayer = dx >= 0 ? 1 : -1;
+  let dirToPlayer = dx >= 0 ? 1 : -1;
   const verticalGap = Math.abs(dy);
-  let dir = 0;
+  let dir = dirToPlayer;
 
-  if(verticalGap > 150 && ad < profile.max + 120) {
-    dir = dirToPlayer;
-  } else if(ad < profile.min) {
-    dir = -dirToPlayer;
-  } else if(ad > profile.max) {
-    dir = dirToPlayer;
-  } else if(profile.strafe) {
-    e.ai.strafeTimer = Math.max(0, (e.ai.strafeTimer || 0) - 1);
-    if(!e.ai.strafeTimer) {
-      e.ai.strafeDir = Math.random() < .5 ? -1 : 1;
-      e.ai.strafeTimer = Math.floor(rand(55, 115));
+  if(e.boss && Number.isFinite(e.arenaMinX) && Number.isFinite(e.arenaMaxX)) {
+    const arenaCenter = (e.arenaMinX + e.arenaMaxX + e.w) / 2;
+    const targetX = clamp((target?.x || arenaCenter) + (target?.x < arenaCenter ? 220 : -220), e.arenaMinX + e.w/2, e.arenaMaxX + e.w/2);
+    const bossX = e.x + e.w/2;
+    dirToPlayer = dx >= 0 ? 1 : -1;
+    if(Math.abs(targetX - bossX) > 24) dir = Math.sign(targetX - bossX);
+    else dir = Math.sin(e.phase * .8) * .35;
+    return {dir, pace:profile.pace, dirToPlayer};
+  }
+
+  e.ai.decisionCd = Math.max(0, (e.ai.decisionCd || 0) - 1);
+  if(!e.ai.mode || e.ai.decisionCd <= 0){
+    const targetAboveUnreachable = target && target.y + target.h < e.y - 70 && !enemyCanReachUpperPlatform(e);
+    const pressure = nearbyMeleePressure(e, target);
+    const choices = [];
+
+    if(targetAboveUnreachable){
+      if(profile.role === "ranged") choices.push("holdRange","strafe","relocate");
+      else choices.push("relocate","patrol","spread");
+    } else if(pressure >= 3){
+      choices.push("spread","flank","holdRange");
+    } else if(profile.role === "ranged"){
+      if(ad < profile.min) choices.push("retreat","strafe");
+      else if(ad > profile.max) choices.push("advance","flank");
+      else choices.push("strafe","holdRange","flank");
+    } else if(profile.role === "assassin"){
+      choices.push(ad > profile.max ? "advance" : "flank", "pounce", "retreat");
+    } else if(profile.role === "flyer"){
+      choices.push("flank","strafe","advance");
+    } else if(profile.role === "heavy"){
+      choices.push(ad > profile.max ? "advance" : "holdRange", "spread");
+    } else {
+      choices.push(ad > profile.max ? "advance" : "patrol", "flank", "spread");
     }
-    dir = e.ai.strafeDir * .38;
+
+    const smartPick = profile.iq >= 4 ? choices[0] : choices[Math.floor(Math.random()*choices.length)];
+    e.ai.mode = smartPick || "advance";
+    e.ai.decisionCd = Math.floor(rand(45, 95) / Math.max(.75, profile.iq * .35));
+    e.ai.side = Math.random() < .5 ? -1 : 1;
+    e.ai.patrolDir = e.ai.patrolDir || (Math.random() < .5 ? -1 : 1);
+  }
+
+  if(e.ai.mode === "advance") dir = dirToPlayer;
+  else if(e.ai.mode === "retreat") dir = -dirToPlayer;
+  else if(e.ai.mode === "holdRange") dir = ad < profile.min ? -dirToPlayer : ad > profile.max ? dirToPlayer : Math.sin(e.phase + e.id) * .25;
+  else if(e.ai.mode === "strafe") dir = (e.ai.side || 1) * .55;
+  else if(e.ai.mode === "flank"){
+    const wantedX = target.x + target.w/2 + (e.ai.side || 1) * profile.max * .72;
+    dir = Math.abs(wantedX - (e.x+e.w/2)) > 22 ? Math.sign(wantedX - (e.x+e.w/2)) : (e.ai.side || 1) * .35;
+  } else if(e.ai.mode === "spread") dir = -dirToPlayer * .72;
+  else if(e.ai.mode === "relocate" || e.ai.mode === "patrol"){
+    if(e.onGround && (obstacleAhead(e, e.ai.patrolDir || 1) || !groundAhead(e, e.ai.patrolDir || 1))) e.ai.patrolDir *= -1;
+    dir = (e.ai.patrolDir || 1) * (e.ai.mode === "relocate" ? .85 : .48);
+  } else if(e.ai.mode === "pounce") {
+    dir = ad > profile.min ? dirToPlayer : -dirToPlayer * .35;
+  }
+
+  if(!e.boss && nearbyMeleePressure(e, target) >= 3 && ad < profile.max + 80) {
+    dir = -dirToPlayer * .55;
   }
 
   return {dir, pace:profile.pace, dirToPlayer};
@@ -1384,49 +1612,158 @@ function applyEnemySpacing(e){
     if(other === e || !other.alive || other.hp <= 0 || other.boss) continue;
     const dx = (e.x + e.w/2) - (other.x + other.w/2);
     const dy = Math.abs((e.y + e.h/2) - (other.y + other.h/2));
-    const minDist = (e.w + other.w) * .62;
-    if(dy < 46 && Math.abs(dx) > 0 && Math.abs(dx) < minDist) {
-      push += Math.sign(dx) * (minDist - Math.abs(dx)) * .012;
+    const minDist = (e.w + other.w) * 1.18;
+    if(dy < 70 && Math.abs(dx) > 0 && Math.abs(dx) < minDist) {
+      push += Math.sign(dx) * (minDist - Math.abs(dx)) * .045;
     }
   }
-  e.vx += clamp(push, -1.1, 1.1);
+  e.vx += clamp(push, -3.4, 3.4);
+}
+
+function enemyEngagementRank(e, target){
+  if(!target || e.boss) return 0;
+  const tx = target.x + target.w/2;
+  const ty = target.y + target.h/2;
+  const ownDist = Math.hypot((e.x+e.w/2)-tx, (e.y+e.h/2)-ty);
+  let closer = 0;
+  for(const other of game.enemies){
+    if(other === e || !other.alive || other.hp <= 0 || other.boss) continue;
+    const oy = other.y + other.h/2;
+    if(Math.abs(oy - ty) > 230) continue;
+    const dist = Math.hypot((other.x+other.w/2)-tx, oy-ty);
+    if(dist < ownDist) closer++;
+  }
+  return closer;
+}
+
+function canEnemyEngage(e, target){
+  if(e.boss) return true;
+  const maxEngaged = game.players.size > 1 ? 6 : 4;
+  return enemyEngagementRank(e, target) < maxEngaged;
+}
+
+function nearbyMeleePressure(e, target){
+  if(!target || e.boss) return 0;
+  let count = 0;
+  const tx = target.x + target.w/2;
+  const ty = target.y + target.h/2;
+  for(const other of game.enemies){
+    if(other === e || !other.alive || other.hp <= 0 || other.boss) continue;
+    const ox = other.x + other.w/2;
+    const oy = other.y + other.h/2;
+    if(Math.abs(ox - tx) < 150 && Math.abs(oy - ty) < 90) count++;
+  }
+  return count;
 }
 
 function bossSummonTypes(type){
   return {
-    boss_dragon:["flametrooper","bat","charger"],
-    boss_spider:["spider","crawler","poisoner"],
-    boss_warlock:["phantom","skull","teleport"],
-    boss_train:["minebot","grenadier","runner"],
-    boss_queen:["leaper","shocker","samurai"],
-    boss_tank:["bomber","gunner","minebot"],
-    boss_blob:["crawler","spitter","splitter"],
-    boss_mecha:["drone","laserbot","turretbot"],
-    boss_final:["phantom","shocker","ninja"]
+    boss_dragon:["flametrooper","bat","charger","jetpack"],
+    boss_spider:["spider","crawler","poisoner","bat"],
+    boss_warlock:["phantom","skull","teleport","drone"],
+    boss_train:["minebot","grenadier","runner","jetpack"],
+    boss_queen:["leaper","shocker","samurai","phantom"],
+    boss_tank:["bomber","gunner","minebot","drone"],
+    boss_blob:["crawler","spitter","splitter","bat"],
+    boss_mecha:["drone","laserbot","turretbot","jetpack"],
+    boss_final:["phantom","shocker","ninja","skull"]
   }[type] || ["runner","gunner"];
+}
+
+function bossArenaBoss(){
+  return game.enemies.find(e => e.alive && e.hp > 0 && e.boss && !e.miniBoss);
+}
+
+function bossArenaSpawnPoint(boss, type, index=0){
+  const cfg = enemyCfg[type];
+  const side = index % 2 ? -1 : 1;
+  const minX = Number.isFinite(boss.arenaMinX) ? boss.arenaMinX : Math.max(0, boss.x - 420);
+  const maxX = Number.isFinite(boss.arenaMaxX) ? boss.arenaMaxX : Math.min(game.level.width - cfg.w, boss.x + 520);
+  const bossCx = boss.x + boss.w/2;
+  const x = clamp(bossCx + side * rand(130, 260), minX + 20, Math.max(minX + 20, maxX - cfg.w - 20));
+  const flying = flyingEnemyTypes.includes(type);
+  const y = flying ? clamp(boss.y - rand(100, 210), 90, 500) : Math.max(80, Math.min(610 - cfg.h, boss.y + boss.h - cfg.h));
+  return {x,y};
+}
+
+function startBossSplit(boss){
+  if(!boss.boss || boss.miniBoss || boss.splitTimer > 0) return;
+  boss.splitTimer = 240;
+  boss.splitCooldown = 520;
+  boss.phaseHidden = true;
+  boss.vx = 0;
+  boss.vy = 0;
+  for(let i=0;i<2;i++){
+    const type = boss.type;
+    const point = bossArenaSpawnPoint(boss, type, i);
+    const mini = spawnEnemy(type, point.x, point.y, {
+      summonedBy:boss.id,
+      miniBoss:true,
+      splitParent:boss.id,
+      scale:.52,
+      hp:Math.max(220, Math.round(boss.maxHp * .16))
+    });
+    mini.facing = i % 2 ? -1 : 1;
+    mini.cd = 35 + i * 18;
+    mini.vx = mini.facing * Math.max(1.8, mini.speed * 2.2);
+    mini.vy = flyingEnemyTypes.includes(type) || type === "boss_dragon" ? -2.5 : -8;
+    burst(mini.x + mini.w/2, mini.y + mini.h/2, boss.color || "#ff5a7a", 42);
+  }
+  toast("Chefão se dividiu!");
+}
+
+function updateBossSplit(boss){
+  if(!boss.boss || boss.miniBoss) return false;
+  boss.splitCooldown = Math.max(0, (boss.splitCooldown || 0) - 1);
+  const hpRatio = boss.hp / Math.max(1, boss.maxHp);
+  const shouldSplit = !boss.phaseHidden && boss.splitCooldown <= 0 && hpRatio < .72 && hpRatio > .18 && Math.random() < .006;
+  if(shouldSplit) startBossSplit(boss);
+
+  if((boss.splitTimer || 0) > 0){
+    boss.splitTimer--;
+    boss.phaseHidden = true;
+    boss.cd = Math.max(boss.cd || 0, 50);
+    if(boss.splitTimer <= 0 || game.enemies.filter(e => e.alive && e.hp > 0 && e.splitParent === boss.id).length === 0){
+      boss.phaseHidden = false;
+      boss.splitTimer = 0;
+      const minX = Number.isFinite(boss.arenaMinX) ? boss.arenaMinX : Math.max(0, boss.x - 420);
+      const maxX = Number.isFinite(boss.arenaMaxX) ? boss.arenaMaxX : Math.min(game.level.width - boss.w, boss.x + 420);
+      boss.x = clamp((minX + maxX) / 2 - boss.w/2, minX, maxX);
+      boss.y = Math.min(boss.y, 500);
+      burst(boss.x + boss.w/2, boss.y + boss.h/2, boss.color || "#ff5a7a", 56);
+      toast("Chefão recompôs o corpo!");
+    }
+    return true;
+  }
+  boss.phaseHidden = false;
+  return false;
 }
 
 function summonBossMinions(e){
   if(!e.boss) return;
   e.summonCd = Math.max(0, (e.summonCd || 0) - 1);
-  const aliveAdds = game.enemies.filter(o => o.alive && !o.boss).length;
-  const maxAdds = game.players.size > 1 ? 8 : 5;
-  if(e.summonCd > 0 || aliveAdds >= maxAdds) return;
+  const ownAdds = game.enemies.filter(o => o.alive && !o.boss && o.summonedBy === e.id).length;
+  const totalAdds = game.enemies.filter(o => o.alive && !o.boss && o.summonedBy).length;
+  const maxOwnAdds = game.players.size > 1 ? 5 : 4;
+  const maxTotalAdds = game.players.size > 1 ? 8 : 6;
+  if(e.summonCd > 0 || ownAdds >= maxOwnAdds || totalAdds >= maxTotalAdds) return;
 
   const types = bossSummonTypes(e.type);
-  const count = e.type === "boss_queen" || e.type === "boss_spider" ? 2 : 1;
-  for(let i=0;i<count && game.enemies.filter(o => o.alive && !o.boss).length < maxAdds;i++){
-    const type = types[Math.floor(Math.random() * types.length)];
+  const hasFlyer = game.enemies.some(o => o.alive && o.hp > 0 && o.summonedBy === e.id && flyingEnemyTypes.includes(o.type));
+  const count = ownAdds === 0 ? 2 : 1;
+  for(let i=0;i<count && game.enemies.filter(o => o.alive && !o.boss && o.summonedBy === e.id).length < maxOwnAdds;i++){
+    const flyerChoices = types.filter(t => flyingEnemyTypes.includes(t));
+    const type = (!hasFlyer && flyerChoices.length && i === 0) ? flyerChoices[Math.floor(Math.random()*flyerChoices.length)] : types[Math.floor(Math.random() * types.length)];
     const cfg = enemyCfg[type];
     if(!cfg) continue;
-    const side = i % 2 ? -1 : 1;
-    const sx = clamp(e.x + e.w/2 + side * rand(90,170), game.cameraX + 80, Math.min(game.level.width - cfg.w - 40, game.cameraX + W - 120));
-    const sy = Math.max(80, Math.min(610 - cfg.h, e.y + e.h - cfg.h));
-    spawnEnemy(type, sx, sy);
+    const point = bossArenaSpawnPoint(e, type, i);
+    const sx = point.x;
+    const sy = point.y;
+    spawnEnemy(type, sx, sy, {summonedBy:e.id});
     burst(sx + cfg.w/2, sy + cfg.h/2, e.color || "#ff5a7a", 18);
   }
   toast("Chefão chamou reforços!");
-  e.summonCd = Math.floor(rand(260,420));
+  e.summonCd = Math.floor(rand(180,300));
 }
 
 function recoverStuckBoss(e, target){
@@ -1439,8 +1776,10 @@ function recoverStuckBoss(e, target){
   else e.ai.bossStuck = Math.max(0, (e.ai.bossStuck || 0) - 2);
 
   if(e.ai.bossStuck > 55 && target){
-    const desiredX = target.x + (target.x < e.x ? 260 : -260);
-    e.x = clamp(desiredX, game.cameraX + 80, Math.min(game.level.width - e.w - 60, game.cameraX + W - e.w - 80));
+    const minX = Number.isFinite(e.arenaMinX) ? e.arenaMinX : Math.max(0, (e.homeX || e.x) - 420);
+    const maxX = Number.isFinite(e.arenaMaxX) ? e.arenaMaxX : Math.min(game.level.width - e.w, (e.homeX || e.x) + 360);
+    const desiredX = (e.homeX || ((minX + maxX) / 2)) + (Math.random() < .5 ? -120 : 120);
+    e.x = clamp(desiredX, minX, maxX);
     e.y = Math.min(e.y, 520);
     e.vx = 0;
     e.vy = -7;
@@ -1700,62 +2039,84 @@ function updateEnemy(e){
   if(!e.alive||e.hp<=0)return;
   const t=nearestPlayer(e);
   if(!t)return;
+  if(updateBossSplit(e)) return;
   const ec=center(e), tc=center(t), dx=tc.x-ec.x, dy=tc.y-ec.y, ad=Math.abs(dx), d=Math.hypot(dx,dy);
   const intent = enemyMoveIntent(e,t,dx,dy,ad);
+  const bossArenaActive = !!bossArenaBoss();
+  const canEngage = e.summonedBy || e.miniBoss || bossArenaActive ? true : canEnemyEngage(e,t);
   e.facing=intent.dirToPlayer;
   e.phase+=0.04;
-  e.vy+=GRAVITY; e.vy=Math.min(e.vy,18);
+  if(e.type === "boss_dragon"){
+    e.vy = clamp((tc.y - 120 - ec.y) * .035 + Math.sin(e.phase * 1.4) * 1.2, -4.5, 4.5);
+  } else {
+    e.vy+=GRAVITY; e.vy=Math.min(e.vy,18);
+  }
 
   if((e.repelTimer || 0) > 0){
     e.repelTimer--;
     e.vx = (e.repelDir || -e.facing || 1) * Math.max(e.boss ? 3.5 : 6.5, (e.speed || 1) * (e.boss ? 2.2 : 4.2));
     if(e.onGround && e.repelTimer === 18 && !e.boss) e.vy = -8;
   } else {
-  switch(e.type){
-    case "runner": e.vx=intent.dir*e.speed*intent.pace; break;
-    case "crawler": e.vx=intent.dir*e.speed*1.05*intent.pace; break;
-    case "ninja": e.vx=intent.dir*e.speed*intent.pace; if(e.onGround&&ad>95&&ad<340&&Math.random()<.02)e.vy=-13; break;
-    case "jetpack": e.vx=intent.dir*e.speed*intent.pace; e.vy+=Math.sin(e.phase)*.7 - .52; break;
-    case "drone":
-    case "bat":
-    case "skull":
-    case "phantom":
-      e.vx=intent.dir*e.speed*intent.pace; e.vy=Math.sin(e.phase*1.7)*2.4 - .18 + clamp(dy * .006, -1.1, 1.1); break;
-    case "shielder":
-    case "turretbot":
-      e.vx=intent.dir*e.speed*intent.pace; break;
-    case "leaper":
-    case "spider":
-      e.vx=intent.dir*e.speed*intent.pace; if(e.onGround&&ad>95&&ad<360&&Math.random()<.026)e.vy=-13.5; break;
-    case "charger":
-      e.ai.chargeCd = Math.max(0, (e.ai.chargeCd || 0) - 1);
-      if(ad > 120 && ad < 500 && e.ai.chargeCd <= 0) {
-        e.vx=e.facing*e.speed*1.75;
-        e.ai.chargeCd = 90;
-      } else {
-        e.vx=intent.dir*e.speed*.72;
+    e.supportOnly = !canEngage;
+    if(e.supportOnly){
+      if(e.ai.mode === "advance" || e.ai.mode === "pounce") {
+        e.ai.mode = Math.random() < .45 ? "flank" : "patrol";
       }
-      break;
-    case "bruiser":
-      e.vx=intent.dir*e.speed*intent.pace; break;
-    case "teleport":
-      e.vx=intent.dir*e.speed*.65; if(ad<500&&ad>150&&Math.random()<.008){e.x=clamp(t.x- e.facing*rand(190,280),0,game.level.width-e.w); burst(e.x,e.y,"#d386ff",18);} break;
-    case "samurai":
-      e.vx=intent.dir*e.speed*intent.pace; if(e.onGround&&ad>95&&ad<300&&Math.random()<.018)e.vy=-10; break;
-    case "boss_blob":
-    case "boss_spider":
-      e.vx=intent.dir*e.speed*intent.pace; if(e.onGround&&Math.random()<.01)e.vy=-12; break;
-    case "boss_dragon":
-      e.vx=intent.dir*e.speed*intent.pace; e.vy+=Math.sin(e.phase)*.42-.2; break;
-    case "boss_train":
-      e.vx=intent.dir*e.speed*.95; break;
-    default: e.vx=intent.dir*e.speed*intent.pace;
-  }
-  applyEnemySpacing(e);
+      if(e.ai.mode === "holdRange" && Math.random() < .55) e.ai.mode = "strafe";
+      intent.dir = intent.dir || (e.ai.patrolDir || 1) * .6;
+      intent.pace = Math.min(intent.pace, .7);
+      e.cd = Math.max(e.cd || 0, 24);
+    }
+    if(e.summonedBy || e.miniBoss){
+      intent.pace = Math.max(intent.pace, e.miniBoss ? 1.08 : .92);
+      if(e.ai.mode === "patrol" || e.ai.mode === "holdRange") e.ai.mode = Math.random() < .5 ? "flank" : "advance";
+    }
+
+    switch(e.type){
+      case "runner": e.vx=intent.dir*e.speed*intent.pace; break;
+      case "crawler": e.vx=intent.dir*e.speed*1.05*intent.pace; break;
+      case "ninja": e.vx=intent.dir*e.speed*intent.pace; if(canEngage&&e.onGround&&ad>95&&ad<340&&Math.random()<.02)e.vy=-13; break;
+      case "jetpack": e.vx=intent.dir*e.speed*intent.pace; e.vy+=Math.sin(e.phase)*.7 - .52; break;
+      case "drone":
+      case "bat":
+      case "skull":
+      case "phantom":
+        e.vx=intent.dir*e.speed*intent.pace; e.vy=Math.sin(e.phase*1.7)*2.4 - .18 + clamp(dy * .006, -1.1, 1.1); break;
+      case "shielder":
+      case "turretbot":
+        e.vx=intent.dir*e.speed*intent.pace; break;
+      case "leaper":
+      case "spider":
+        e.vx=intent.dir*e.speed*intent.pace; if(canEngage&&e.onGround&&ad>95&&ad<360&&Math.random()<.026)e.vy=-13.5; break;
+      case "charger":
+        e.ai.chargeCd = Math.max(0, (e.ai.chargeCd || 0) - 1);
+        if(canEngage && ad > 120 && ad < 500 && e.ai.chargeCd <= 0) {
+          e.vx=e.facing*e.speed*1.75;
+          e.ai.chargeCd = 90;
+        } else {
+          e.vx=intent.dir*e.speed*.72;
+        }
+        break;
+      case "bruiser":
+        e.vx=intent.dir*e.speed*intent.pace; break;
+      case "teleport":
+        e.vx=intent.dir*e.speed*.65; if(canEngage&&ad<500&&ad>150&&Math.random()<.008){e.x=clamp(t.x- e.facing*rand(190,280),0,game.level.width-e.w); burst(e.x,e.y,"#d386ff",18);} break;
+      case "samurai":
+        e.vx=intent.dir*e.speed*intent.pace; if(canEngage&&e.onGround&&ad>95&&ad<300&&Math.random()<.018)e.vy=-10; break;
+      case "boss_blob":
+      case "boss_spider":
+        e.vx=intent.dir*e.speed*intent.pace; if(e.onGround&&Math.random()<.01)e.vy=-12; break;
+      case "boss_dragon":
+        e.vx=(intent.dir || Math.sin(e.phase*.6)) * Math.max(1.1, e.speed*2.2); break;
+      case "boss_train":
+        e.vx=intent.dir*e.speed*.95; break;
+      default: e.vx=intent.dir*e.speed*intent.pace;
+    }
+    applyEnemySpacing(e);
   }
   summonBossMinions(e);
   e.cd--;
-  if(e.cd<=0){
+  if(e.cd<=0 && !e.supportOnly){
     if(e.type==="gunner") {enemyShoot(e,t,"bullet",7); e.cd=75;}
     else if(e.type==="sniper") {enemyShoot(e,t,"laser",10); e.cd=120;}
     else if(e.type==="spitter") {enemyShoot(e,t,"acid",5); e.cd=85;}
@@ -1793,7 +2154,8 @@ function updateEnemy(e){
     else if(e.type==="boss_train") {enemyShoot(e,t,"rocket",7); game.enemyBullets.push({x:ec.x,y:ec.y,w:18,h:18,vx:e.facing*7,vy:-9,dmg:24,life:120,kind:"bomb"});sfx.enemy();e.cd=55;}
     else if(e.type==="boss_queen") {for(let i=-2;i<=2;i++)game.enemyBullets.push({x:ec.x,y:ec.y,w:13,h:13,vx:e.facing*6,vy:i*2.4,dmg:17,life:120,kind:i%2?"acid":"laser"}); sfx.enemy();e.cd=62;}
   }
-  moveEntity(e);
+  if(e.boss) moveBossEntity(e);
+  else moveEntity(e);
   smartEnemyUnstuck(e,t);
   recoverStuckBoss(e,t);
 
@@ -1850,7 +2212,7 @@ function updateProjectiles(){
     b.x+=b.vx;b.y+=b.vy;b.life--;
     if(solidAt(b)){if(b.explode) explode({x:b.x,y:b.y,owner:b.owner,dead:false},b.explode,b.dmg*1.2); b.life=0;burst(b.x,b.y,b.color,4);}
     for(const e of game.enemies){
-      if(!e.alive||e.hp<=0)continue;
+      if(!e.alive||e.hp<=0||e.phaseHidden)continue;
       if(rects(b,e)){
         let dmg=b.dmg;
         if(e.type==="shielder"&&Math.sign(b.vx)!==e.facing)dmg*=.35;
@@ -1886,6 +2248,7 @@ function explode(g,radius=155,dmg=140){
   const playerOwned = Number(g.owner) >= 1 && Number(g.owner) <= 4;
   if(playerOwned){
     for(const e of game.enemies){
+      if(e.phaseHidden) continue;
       const d=Math.hypot((e.x+e.w/2)-g.x,(e.y+e.h/2)-g.y);
       if(d<radius){
         e.hp-=dmg*(1-d/(radius+20));
@@ -1906,7 +2269,8 @@ function killEnemy(e,owner){
     p.score += points;
     if (p.kills % 5 === 0 || e.boss) toast(`+${points} pontos · ${p.kills} kills`);
   }
-  if(e.type==="splitter"){
+  const activeNonBoss = game.enemies.filter(o => o.alive && o.hp > 0 && !o.boss).length;
+  if(e.type==="splitter" && activeNonBoss < 7){
     spawnEnemy("crawler",clamp(e.x-30,0,game.level.width-80),e.y);
     spawnEnemy("crawler",clamp(e.x+30,0,game.level.width-80),e.y);
   }
@@ -2111,6 +2475,7 @@ function update(){
   game.time++;
   updateHazards();
   for(const p of game.players.values()) updatePlayer(p);
+  spawnVerticalPressure();
   for(const e of game.enemies) updateEnemy(e);
   updateProjectiles();
   damageHazards();
@@ -2575,9 +2940,15 @@ function drawPixelEnemy(e){
   const y = sy + e.h/2;
   const w = e.w, h = e.h;
   const c = e.color || "#ffb86b";
+  const bossLike = e.boss || e.miniBoss;
 
   ctx.save();
   ctx.translate(x,y);
+  if(e.miniBoss) {
+    ctx.scale(1.18,1.18);
+    ctx.shadowColor = e.color || "#ff5a7a";
+    ctx.shadowBlur = 14;
+  }
 
   // sombra
   ctx.globalAlpha=.25;
@@ -2587,7 +2958,7 @@ function drawPixelEnemy(e){
   ctx.fill();
   ctx.globalAlpha=1;
 
-  if(e.boss){
+  if(e.boss || (e.miniBoss && String(e.type).startsWith("boss_"))){
     drawBossSprite(e,w,h,c);
   } else if(e.type === "drone" || e.type === "jetpack"){
     drawDroneSprite(e,w,h,c);
@@ -2601,10 +2972,16 @@ function drawPixelEnemy(e){
     drawEnemySoldierSprite(e,w,h,c);
   }
 
-  const barW = e.boss ? w + 34 : Math.max(34, Math.min(58, w + 14));
-  const barH = e.boss ? 8 : 5;
+  if(e.miniBoss){
+    ctx.strokeStyle = "#ffe66d";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(-w*.56,-h*.62,w*1.12,h*1.16);
+  }
+
+  const barW = bossLike ? w + 34 : Math.max(34, Math.min(58, w + 14));
+  const barH = bossLike ? 8 : 5;
   const barX = -barW / 2;
-  const barY = -h / 2 - (e.boss ? 20 : 12);
+  const barY = -h / 2 - (bossLike ? 20 : 12);
   const hpRatio = Math.max(0, Math.min(1, (e.hp || 0) / (e.maxHp || e.hp || 1)));
   ctx.fillStyle="rgba(0,0,0,.82)";
   ctx.fillRect(barX,barY,barW,barH);
@@ -2947,6 +3324,7 @@ function drawPlayer(p){
   drawPixelHero(p);
 }
 function drawEnemy(e){
+  if(e.phaseHidden) return;
   drawPixelEnemy(e);
 }
 
@@ -3004,8 +3382,8 @@ function serializeGameState(){
       weaponId:p.weaponId || "default", weaponAmmo:p.weaponAmmo || 0, weaponName:weaponById(p.weaponId).name, bombs:p.bombs ?? START_BOMBS,
       deadAt:p.deadAt || 0
     })),
-    enemies:game.enemies.filter(e=>e.alive).map(e => ({
-      type:e.type,x:e.x,y:e.y,w:e.w,h:e.h,hp:e.hp,maxHp:e.maxHp,color:e.color,boss:!!e.boss,facing:e.facing
+    enemies:game.enemies.filter(e=>e.alive && !e.phaseHidden).map(e => ({
+      type:e.type,x:e.x,y:e.y,w:e.w,h:e.h,hp:e.hp,maxHp:e.maxHp,color:e.color,boss:!!e.boss || !!e.miniBoss,facing:e.facing
     })),
     bullets:game.bullets.map(b => ({x:b.x,y:b.y,w:b.w,h:b.h,color:b.color,weaponId:b.weaponId})),
     enemyBullets:game.enemyBullets.map(b => ({x:b.x,y:b.y,w:b.w,h:b.h,kind:b.kind})),
