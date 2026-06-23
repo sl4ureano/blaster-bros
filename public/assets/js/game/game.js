@@ -1249,7 +1249,9 @@ function spawnEnemy(type,x,y){
   const c=enemyCfg[type];
   const mult = game.difficultyMultiplier || 1;
   const hp = Math.round(c.hp * mult);
-  game.enemies.push({type,x,y,w:c.w,h:c.h,vx:0,vy:0,hp,maxHp:hp,speed:c.speed*(0.92+mult*0.12),score:c.score,color:c.color,boss:!!c.boss,alive:true,facing:-1,cd:Math.floor(rand(20,100)/mult),phase:rand(0,6.28),shield:type==="shielder"?70:0});
+  const e = {type,x,y,w:c.w,h:c.h,vx:0,vy:0,hp,maxHp:hp,speed:c.speed*(0.92+mult*0.12),score:c.score,color:c.color,boss:!!c.boss,alive:true,facing:-1,cd:Math.floor(rand(20,100)/mult),phase:rand(0,6.28),shield:type==="shielder"?70:0,summonCd:Math.floor(rand(160,260))};
+  if(e.boss) resolveBossSpawn(e);
+  game.enemies.push(e);
 }
 
 function solidAt(ent){
@@ -1258,6 +1260,16 @@ function solidAt(ent){
     if(rects(ent,r)) return r;
   }
   return null;
+}
+
+function resolveBossSpawn(e){
+  for(let i=0;i<30 && solidAt(e);i++){
+    e.y -= 8;
+  }
+  for(let i=0;i<42 && solidAt(e);i++){
+    const dir = i % 2 ? -1 : 1;
+    e.x = clamp(e.x + dir * (12 + i * 2), 0, game.level.width - e.w);
+  }
 }
 
 
@@ -1378,6 +1390,63 @@ function applyEnemySpacing(e){
     }
   }
   e.vx += clamp(push, -1.1, 1.1);
+}
+
+function bossSummonTypes(type){
+  return {
+    boss_dragon:["flametrooper","bat","charger"],
+    boss_spider:["spider","crawler","poisoner"],
+    boss_warlock:["phantom","skull","teleport"],
+    boss_train:["minebot","grenadier","runner"],
+    boss_queen:["leaper","shocker","samurai"],
+    boss_tank:["bomber","gunner","minebot"],
+    boss_blob:["crawler","spitter","splitter"],
+    boss_mecha:["drone","laserbot","turretbot"],
+    boss_final:["phantom","shocker","ninja"]
+  }[type] || ["runner","gunner"];
+}
+
+function summonBossMinions(e){
+  if(!e.boss) return;
+  e.summonCd = Math.max(0, (e.summonCd || 0) - 1);
+  const aliveAdds = game.enemies.filter(o => o.alive && !o.boss).length;
+  const maxAdds = game.players.size > 1 ? 8 : 5;
+  if(e.summonCd > 0 || aliveAdds >= maxAdds) return;
+
+  const types = bossSummonTypes(e.type);
+  const count = e.type === "boss_queen" || e.type === "boss_spider" ? 2 : 1;
+  for(let i=0;i<count && game.enemies.filter(o => o.alive && !o.boss).length < maxAdds;i++){
+    const type = types[Math.floor(Math.random() * types.length)];
+    const cfg = enemyCfg[type];
+    if(!cfg) continue;
+    const side = i % 2 ? -1 : 1;
+    const sx = clamp(e.x + e.w/2 + side * rand(90,170), game.cameraX + 80, Math.min(game.level.width - cfg.w - 40, game.cameraX + W - 120));
+    const sy = Math.max(80, Math.min(610 - cfg.h, e.y + e.h - cfg.h));
+    spawnEnemy(type, sx, sy);
+    burst(sx + cfg.w/2, sy + cfg.h/2, e.color || "#ff5a7a", 18);
+  }
+  toast("Chefão chamou reforços!");
+  e.summonCd = Math.floor(rand(260,420));
+}
+
+function recoverStuckBoss(e, target){
+  if(!e.boss) return;
+  e.ai = e.ai || {};
+  e.ai.bossLastX ??= e.x;
+  const moved = Math.abs(e.x - e.ai.bossLastX);
+  e.ai.bossLastX = e.x;
+  if(moved < .12 && Math.abs(e.vx) > .08) e.ai.bossStuck = (e.ai.bossStuck || 0) + 1;
+  else e.ai.bossStuck = Math.max(0, (e.ai.bossStuck || 0) - 2);
+
+  if(e.ai.bossStuck > 55 && target){
+    const desiredX = target.x + (target.x < e.x ? 260 : -260);
+    e.x = clamp(desiredX, game.cameraX + 80, Math.min(game.level.width - e.w - 60, game.cameraX + W - e.w - 80));
+    e.y = Math.min(e.y, 520);
+    e.vx = 0;
+    e.vy = -7;
+    e.ai.bossStuck = 0;
+    burst(e.x + e.w/2, e.y + e.h/2, e.color || "#ffe66d", 32);
+  }
 }
 
 function separateEnemyFromPlayer(e,p){
@@ -1684,6 +1753,7 @@ function updateEnemy(e){
   }
   applyEnemySpacing(e);
   }
+  summonBossMinions(e);
   e.cd--;
   if(e.cd<=0){
     if(e.type==="gunner") {enemyShoot(e,t,"bullet",7); e.cd=75;}
@@ -1718,13 +1788,14 @@ function updateEnemy(e){
     else if(e.type==="boss_mecha") {for(let i=-2;i<=2;i++)game.enemyBullets.push({x:ec.x,y:ec.y,w:10,h:10,vx:e.facing*8,vy:i*2,dmg:13,life:110,kind:"laser"});sfx.enemy();e.cd=58;}
     else if(e.type==="boss_final") {for(let i=-3;i<=3;i++)game.enemyBullets.push({x:ec.x,y:ec.y,w:14,h:14,vx:e.facing*(5+Math.abs(i)),vy:i*2.3,dmg:18,life:140,kind:i%2?"rocket":"acid"});sfx.enemy();e.cd=48;}
     else if(e.type==="boss_dragon") {for(let i=-2;i<=2;i++)game.enemyBullets.push({x:ec.x,y:ec.y,w:16,h:16,vx:e.facing*(6+Math.abs(i)),vy:i*2,dmg:20,life:120,kind:"rocket"});sfx.enemy();e.cd=60;}
-    else if(e.type==="boss_spider") {for(let i=-3;i<=3;i++)game.enemyBullets.push({x:ec.x,y:ec.y,w:12,h:12,vx:e.facing*(4+Math.abs(i)*.7),vy:-5+i*1.8,dmg:16,life:135,kind:"acid"}); if(Math.random()<.45)spawnEnemy("spider",clamp(e.x+e.facing*120,0,game.level.width-100),e.y+40); sfx.enemy();e.cd=72;}
-    else if(e.type==="boss_warlock") {for(let i=0;i<4;i++)enemyShoot(e,t,i%2?"laser":"acid",7+i); if(Math.random()<.35)spawnEnemy("phantom",clamp(e.x+rand(-180,180),0,game.level.width-80),e.y); e.cd=68;}
+    else if(e.type==="boss_spider") {for(let i=-3;i<=3;i++)game.enemyBullets.push({x:ec.x,y:ec.y,w:12,h:12,vx:e.facing*(4+Math.abs(i)*.7),vy:-5+i*1.8,dmg:16,life:135,kind:"acid"}); sfx.enemy();e.cd=72;}
+    else if(e.type==="boss_warlock") {for(let i=0;i<4;i++)enemyShoot(e,t,i%2?"laser":"acid",7+i); e.cd=68;}
     else if(e.type==="boss_train") {enemyShoot(e,t,"rocket",7); game.enemyBullets.push({x:ec.x,y:ec.y,w:18,h:18,vx:e.facing*7,vy:-9,dmg:24,life:120,kind:"bomb"});sfx.enemy();e.cd=55;}
-    else if(e.type==="boss_queen") {for(let i=-2;i<=2;i++)game.enemyBullets.push({x:ec.x,y:ec.y,w:13,h:13,vx:e.facing*6,vy:i*2.4,dmg:17,life:120,kind:i%2?"acid":"laser"}); if(Math.random()<.4)spawnEnemy("leaper",clamp(e.x+e.facing*140,0,game.level.width-100),e.y+30); sfx.enemy();e.cd=62;}
+    else if(e.type==="boss_queen") {for(let i=-2;i<=2;i++)game.enemyBullets.push({x:ec.x,y:ec.y,w:13,h:13,vx:e.facing*6,vy:i*2.4,dmg:17,life:120,kind:i%2?"acid":"laser"}); sfx.enemy();e.cd=62;}
   }
   moveEntity(e);
   smartEnemyUnstuck(e,t);
+  recoverStuckBoss(e,t);
 
   e.contactCd = Math.max(0, (e.contactCd || 0) - 1);
   for(const p of game.players.values()) {
@@ -2592,6 +2663,75 @@ function drawShieldSprite(e,w,h,c){
 
 function drawBossSprite(e,w,h,c){
   const dark="#111827";
+  const face = e.facing || 1;
+  if(e.type === "boss_dragon"){
+    pxRect(-w*.42,-h*.18,w*.72,h*.36,c);
+    pxRect(w*.16*face,-h*.38,w*.34,h*.30,c);
+    pxRect(w*.42*face,-h*.30,w*.24,h*.14,"#ffdd8a");
+    pxRect(-w*.56,-h*.42,w*.30,h*.28,"#8b1e1e");
+    pxRect(-w*.58,h*.06,w*.34,h*.24,"#8b1e1e");
+    for(let i=0;i<4;i++) pxRect(-w*.24+i*w*.16,-h*.34,w*.08,h*.16,"#ffe66d");
+    pxRect(face>0?w*.26:-w*.37,-h*.29,w*.06,h*.06,"#111");
+    pxRect(-w*.28,h*.20,w*.13,h*.20,dark); pxRect(w*.05,h*.20,w*.13,h*.20,dark);
+    return;
+  }
+  if(e.type === "boss_spider"){
+    pxRect(-w*.34,-h*.30,w*.68,h*.50,c);
+    pxRect(-w*.20,-h*.48,w*.40,h*.22,c);
+    for(let side=-1; side<=1; side+=2){
+      for(let i=0;i<4;i++){
+        ctx.strokeStyle=dark; ctx.lineWidth=5;
+        ctx.beginPath();
+        ctx.moveTo(side*w*.22, -h*.10+i*h*.08);
+        ctx.lineTo(side*w*(.44+i*.05), h*(.02+i*.12));
+        ctx.lineTo(side*w*(.56+i*.03), h*(.20+i*.05));
+        ctx.stroke();
+      }
+    }
+    pxRect(-w*.09,-h*.40,w*.06,h*.06,"#fff"); pxRect(w*.03,-h*.40,w*.06,h*.06,"#fff");
+    return;
+  }
+  if(e.type === "boss_train"){
+    pxRect(-w*.50,-h*.26,w*.72,h*.46,c);
+    pxRect(w*.08,-h*.44,w*.28,h*.22,c);
+    pxRect(w*.30,-h*.18,w*.26,h*.20,"#d7f9ff");
+    pxRect(-w*.54,h*.18,w*1.08,h*.12,dark);
+    for(let i=0;i<4;i++){ctx.fillStyle="#111";ctx.beginPath();ctx.arc(-w*.34+i*w*.22,h*.32,w*.08,0,Math.PI*2);ctx.fill();}
+    pxRect(face>0?w*.42:-w*.58,-h*.08,w*.30,h*.10,"#e9edf7");
+    return;
+  }
+  if(e.type === "boss_queen"){
+    pxRect(-w*.30,-h*.34,w*.60,h*.58,c);
+    pxRect(-w*.22,-h*.54,w*.44,h*.20,c);
+    for(let i=0;i<5;i++) pxRect(-w*.24+i*w*.12,-h*.70,w*.08,h*.18,"#ffe66d");
+    pxRect(-w*.54,-h*.10,w*.24,h*.34,"#7c2d8a");
+    pxRect(w*.30,-h*.10,w*.24,h*.34,"#7c2d8a");
+    pxRect(face>0?w*.06:-w*.14,-h*.42,w*.08,h*.07,"#111");
+    pxRect(-w*.16,h*.22,w*.12,h*.20,dark); pxRect(w*.04,h*.22,w*.12,h*.20,dark);
+    return;
+  }
+  if(e.type === "boss_warlock"){
+    pxRect(-w*.32,-h*.46,w*.64,h*.78,"#3b1b5a");
+    pxRect(-w*.24,-h*.62,w*.48,h*.24,c);
+    pxRect(face>0?w*.28:-w*.52,-h*.18,w*.16,h*.70,"#d386ff");
+    pxRect(-w*.10,-h*.45,w*.20,h*.09,"#fff");
+    return;
+  }
+  if(e.type === "boss_mecha" || e.type === "boss_tank"){
+    pxRect(-w*.46,-h*.34,w*.92,h*.58,c);
+    pxRect(-w*.22,-h*.54,w*.44,h*.24,"#8be9fd");
+    pxRect(-w*.58,h*.22,w*1.16,h*.16,dark);
+    pxRect(face>0?w*.30:-w*.74,-h*.10,w*.44,h*.12,"#e9edf7");
+    pxRect(-w*.32,h*.02,w*.18,h*.14,"#111"); pxRect(w*.12,h*.02,w*.18,h*.14,"#111");
+    return;
+  }
+  if(e.type === "boss_blob"){
+    pxRect(-w*.38,-h*.24,w*.70,h*.48,c);
+    pxRect(-w*.18,-h*.42,w*.44,h*.28,c);
+    pxRect(w*.02,h*.06,w*.44,h*.30,c);
+    pxRect(-w*.08,-h*.28,w*.08,h*.08,"#111"); pxRect(w*.12,-h*.22,w*.08,h*.08,"#111");
+    return;
+  }
   pxRect(-w*.45,-h*.36,w*.9,h*.65,c);
   pxRect(-w*.34,-h*.58,w*.68,h*.28,c);
   pxRect(-w*.22,-h*.48,w*.44,h*.12,"#fff");
