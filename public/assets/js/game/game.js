@@ -132,6 +132,7 @@ const colors = ["#66d9ff", "#ff5a7a", "#ffe66d", "#57e389"];
 const names = ["Azul", "Rosa", "Amarelo", "Verde"];
 const START_BOMBS = 5;
 const MAX_BOMBS = 15;
+const GRENADE_COOLDOWN_FRAMES = 18;
 
 const defaultWeapon = {
   id:"default",
@@ -779,18 +780,18 @@ function dropLootFromEnemy(e){
     return;
   }
 
-  if(deadNeedRevive && roll < 0.12){
+  if(deadNeedRevive && roll < 0.08){
     game.pickups.push({type:"revive",x,y,w:26,h:26,born:game.time});
-  } else if(roll < 0.20){
+  } else if(roll < 0.11){
     game.pickups.push({type:"heal",x,y,w:24,h:24,born:game.time});
-  } else if(roll < 0.26){
+  } else if(roll < 0.13){
     game.pickups.push({type:"life",x,y,w:24,h:24,born:game.time});
-  } else if(roll < 0.42){
+  } else if(roll < 0.16){
     const wpn = randomWeapon();
     game.pickups.push({type:"weapon",weaponId:wpn.id,weaponName:wpn.name,ammo:wpn.ammo,x,y,w:30,h:30,born:game.time});
-  } else if(roll < 0.54){
+  } else if(roll < 0.18){
     game.pickups.push({type:"bombs",amount:Math.random()<0.8?2:5,x,y,w:26,h:26,born:game.time});
-  } else if(roll < 0.62){
+  } else if(roll < 0.19){
     game.pickups.push({type:"rapid",x,y,w:24,h:24,born:game.time});
   }
 }
@@ -1463,7 +1464,7 @@ function updatePlayer(p){
   if(wantsGrenade && p.grenadeCd<=0 && p.bombs > 0){
     p.bombs--;
     game.grenades.push({owner:p.id,x:p.x+p.w/2,y:p.y+18,w:12,h:12,vx:p.facing*8,vy:-7,t:66});
-    p.grenadeCd=135;
+    p.grenadeCd=GRENADE_COOLDOWN_FRAMES;
   } else if(wantsGrenade && p.grenadeCd<=0 && p.bombs <= 0) {
     p.grenadeCd = 20;
     toast(`${pname(p.id)} sem bombas`);
@@ -1702,6 +1703,17 @@ function damagePlayer(p,dmg,kx=0,ky=0){
   if(p.hp<=0) downPlayer(p);
 }
 
+function killPlayerByHazard(p,kx=0,ky=0){
+  if(p.inv>0 || !p.alive)return;
+  p.hp=0;
+  p.vx+=kx;
+  p.vy+=ky;
+  addShake(9);
+  burst(p.x+p.w/2,p.y+p.h/2,"#ff5a7a",28);
+  sfx.hit();
+  downPlayer(p);
+}
+
 function updateProjectiles(){
   for(const b of game.bullets){
     b.x+=b.vx;b.y+=b.vy;b.life--;
@@ -1803,42 +1815,42 @@ function applyHazardsToPlayer(p){
   for(const h of game.level.hazards){
     if(h.dead)continue;
     if(h.type==="fire"||h.type==="acid"){
-      if(rects(p,h)&&p.inv<=0){damagePlayer(p,h.dmg,0,0); if(Math.random()<.08){sfx.hazard();burst(p.x+p.w/2,p.y+p.h/2,h.type==="fire"?"#ff6b35":"#57e389",5);}}
+      if(rects(p,h)&&p.inv<=0){killPlayerByHazard(p,0,-8); sfx.hazard(); burst(p.x+p.w/2,p.y+p.h/2,h.type==="fire"?"#ff6b35":"#57e389",14);}
     } else if(h.type==="saw"){
       const sx=h.x+Math.sin(game.time*h.speed)*(h.range||200), sy=h.y, d=Math.hypot((p.x+p.w/2)-sx,(p.y+p.h/2)-sy);
-      if(d<h.r+18) damagePlayer(p,h.dmg,Math.sign((p.x+p.w/2)-sx)*10,-9);
+      if(d<h.r+18) killPlayerByHazard(p,Math.sign((p.x+p.w/2)-sx)*10,-9);
     } else if(h.type==="crusher"){
       const down=(Math.sin(game.time*.035+h.phase)>0.15);
       const y=h.y+(down?250:0), r={x:h.x,y,w:h.w,h:h.h};
-      if(rects(p,r)) damagePlayer(p,h.dmg,0,8);
+      if(rects(p,r)) killPlayerByHazard(p,0,8);
     } else if(h.type==="laser"){
       const on=Math.sin(game.time*.055+h.phase)>-.15, r={x:h.x,y:h.y,w:h.w,h:h.h};
-      if(on&&rects(p,r)) damagePlayer(p,h.dmg,0,-4);
+      if(on&&rects(p,r)) killPlayerByHazard(p,0,-4);
     } else if(h.type==="blade_wall"){
       const yy=h.y+Math.sin(game.time*(h.speed||.04)+(h.phase||0))*(h.range||160);
       const r={x:h.x,y:yy,w:h.w,h:h.h};
-      if(rects(p,r)) damagePlayer(p,h.dmg||26,Math.sign((p.x+p.w/2)-(h.x+h.w/2))*12,-8);
+      if(rects(p,r)) killPlayerByHazard(p,Math.sign((p.x+p.w/2)-(h.x+h.w/2))*12,-8);
     } else if(h.type==="spikes"){
       const active=Math.sin(game.time*(h.speed||.05)+(h.phase||0))>-.35;
-      if(active&&rects(p,h)) damagePlayer(p,h.dmg||18,0,-12);
+      if(active&&rects(p,h)) killPlayerByHazard(p,0,-12);
     } else if(h.type==="laser_sweep"){
       const lx=h.x+Math.sin(game.time*(h.speed||.035)+(h.phase||0))*(h.range||260);
       const r=h.vertical?{x:lx,y:h.y,w:h.w||18,h:h.h||620}:{x:h.x,y:h.y+Math.sin(game.time*(h.speed||.035)+(h.phase||0))*(h.range||180),w:h.w||420,h:h.h||16};
-      if(rects(p,r)) damagePlayer(p,h.dmg||24,0,-5);
+      if(rects(p,r)) killPlayerByHazard(p,0,-5);
     } else if(h.type==="pendulum"){
       const px=h.x+Math.sin(game.time*(h.speed||.045)+(h.phase||0))*(h.range||180);
       const py=h.y+Math.abs(Math.cos(game.time*(h.speed||.045)+(h.phase||0)))*60;
       const d=Math.hypot((p.x+p.w/2)-px,(p.y+p.h/2)-py);
-      if(d<(h.r||30)+16) damagePlayer(p,h.dmg||28,Math.sign((p.x+p.w/2)-px)*14,-9);
+      if(d<(h.r||30)+16) killPlayerByHazard(p,Math.sign((p.x+p.w/2)-px)*14,-9);
     } else if(h.type==="mine"){
       if(!h.dead&&rects(p,{x:h.x,y:h.y,w:h.w||28,h:h.h||28})){
         h.dead=true;
         explode({x:h.x+14,y:h.y+14,owner:0,dead:false},110,h.dmg||75);
-        damagePlayer(p,h.dmg||40,0,-14);
+        killPlayerByHazard(p,0,-14);
       }
     } else if(h.type==="beast"||h.type==="raptor"||h.type==="snake"||h.type==="bat_swarm"){
       const r={x:h.x,y:h.y,w:h.w||50,h:h.h||34};
-      if(rects(p,r)) damagePlayer(p,h.dmg||18,Math.sign((p.x+p.w/2)-(h.x+(h.w||50)/2))*10,-7);
+      if(rects(p,r)) killPlayerByHazard(p,Math.sign((p.x+p.w/2)-(h.x+(h.w||50)/2))*10,-7);
     }
   }
 }
