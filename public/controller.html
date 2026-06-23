@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Blaster Bros - Controle</title>
+  <link rel="stylesheet" href="/assets/css/style.css" />
+</head>
+<body class="controller-body">
+  <button id="startOverlay" class="start-overlay">
+    <strong>Tocar para jogar</strong>
+    <span>Ativa tela cheia e conecta o controle</span>
+  </button>
+
+  <main class="controller">
+    <header>
+      <div>
+        <h1>Blaster Bros</h1>
+        <p id="status">Toque para conectar</p>
+      </div>
+      <strong id="player">Jogador</strong>
+    </header>
+
+    <section class="color-panel lobby-only">
+      <span>Cor do jogador</span>
+      <div id="colorChoices" class="color-choices">
+        <button type="button" data-player-id="1" style="--c:#66d9ff">Azul</button>
+        <button type="button" data-player-id="2" style="--c:#ff5a7a">Rosa</button>
+        <button type="button" data-player-id="3" style="--c:#ffe66d">Amarelo</button>
+        <button type="button" data-player-id="4" style="--c:#57e389">Verde</button>
+      </div>
+    </section>
+
+    <section class="difficulty-panel lobby-only">
+      <span>Dificuldade</span>
+      <div id="difficulty" class="difficulty-buttons">
+        <button data-difficulty="easy">Fácil</button>
+        <button data-difficulty="normal" class="selected">Normal</button>
+        <button data-difficulty="hard">Difícil</button>
+        <button data-difficulty="insane">Insano</button>
+      </div>
+    </section>
+
+    <section class="pad">
+      <div class="move-zone">
+        <span class="label">Mover / Agachar</span>
+        <div id="moveStick" class="stick"><div class="knob"></div></div>
+      </div>
+
+      <div class="right-zone">
+        <div class="right-gameplay gameplay-only">
+          <div class="top-action-row">
+            <button id="bombBtn" class="round-action grenade-action"></button>
+            <button id="jumpBtn" class="round-action jump-action"></button>
+          </div>
+
+          <div class="aim-zone">
+            <span class="label">Mirar / Atirar</span>
+            <div id="aimStick" class="stick aim"><div class="knob"></div></div>
+          </div>
+        </div>
+
+        <div class="lobby-start lobby-only">
+          <button id="readyBtn">COMEÇAR</button>
+        </div>
+      </div>
+    </section>
+
+    <details class="manual compact-manual">
+      <summary>Conexão</summary>
+      <div class="manual-row">
+        <input id="manualCode" maxlength="4" placeholder="CÓDIGO" />
+        <button id="connectBtn">Reconectar</button>
+        <div class="layout-tools gameplay-only">
+          <button id="layoutEditBtn" type="button">Editar layout</button>
+          <button id="layoutSaveBtn" type="button">Salvar layout</button>
+          <button id="layoutResetBtn" type="button">Reset layout</button>
+        </div>
+</div>
+    </details>
+  </main>
+
+  <div class="landscape-warning">
+    <div>
+      <strong>Vire o celular</strong>
+      <span>Controle pensado para jogar na horizontal.</span>
+    </div>
+  </div>
+
+  <script src="/assets/js/controller/controller.js"></script>
+</body>
+</html>

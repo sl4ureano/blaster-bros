@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Blaster Bros - TV</title>
+  <link rel="stylesheet" href="/assets/css/style.css" />
+</head>
+<body class="tv-body">
+  <main class="tv-shell">
+    <header class="hud">
+      <div>
+        <h1>Blaster Bros</h1>
+        <p>Run-and-gun eletrizante</p>
+      </div>
+
+      <div class="stats" id="stats"></div>
+
+      <div class="connect">
+        <div id="qr" class="qr">QR</div>
+
+        <div class="connect-content">
+          <div class="connect-head">
+            <div>
+              <span class="connect-label">Código</span>
+              <strong id="code">----</strong>
+            </div>
+            <a class="editor-link" href="/editor.html">Editor</a>
+          </div>
+
+          <small id="status" class="connect-status">Criando sala...</small>
+
+          <div class="invite-list">
+            <div class="invite-line">
+              <span>Controle</span>
+              <a id="inviteLink" href="#" target="_blank" rel="noopener">---</a>
+            </div>
+
+            <div class="invite-line">
+              <span>Amigo</span>
+              <a id="playLink" href="#" target="_blank" rel="noopener">---</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <canvas id="game" width="1280" height="720"></canvas>
+
+    <footer>
+      <span id="players">Jogadores: 0/4</span>
+      <span>Teclado: A/D move · W/Space pula · mouse mira · clique/CTRL atira · S agacha · R reinicia</span>
+    </footer>
+  </main>
+
+  <script src="/assets/js/engine/shared-renderer.js"></script>
+  <script src="/assets/js/game/game.js"></script>
+</body>
+</html>

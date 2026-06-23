@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Blaster Bros - Play/Spectator</title>
+  <link rel="stylesheet" href="/assets/css/viewer.css" />
+</head>
+<body>
+  <main class="viewer-shell">
+    <header>
+      <div>
+        <h1>Blaster Bros</h1>
+        <p id="status">Conectando...</p>
+      </div>
+      <div class="join-box">
+        <input id="roomCode" maxlength="4" placeholder="CÓDIGO" />
+        <button id="joinBtn">Entrar</button>
+        <button id="fitBtn" type="button">Tela cheia</button>
+        <a id="controllerLink" href="#">Controle</a>
+      </div>
+    </header>
+
+    <section class="screen-wrap">
+      <canvas id="remoteGame" width="1280" height="720"></canvas>
+      <div id="empty" class="empty">Aguardando estado da TV...</div>
+    </section>
+
+    <footer>
+      <span>Render local via estado JSON, sem streaming de imagem.</span>
+      <span>Para jogar, abra o controle no celular ou use o link Controle.</span>
+    </footer>
+  </main>
+
+  <script src="/assets/js/engine/shared-renderer.js"></script>
+  <script src="/assets/js/viewer/viewer.js"></script>
+</body>
+</html>

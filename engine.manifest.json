@@ -1,0 +1,19 @@
+{
+  "name": "Platform Web Engine",
+  "version": "0.1.0",
+  "maxPlayers": 4,
+  "entries": {
+    "tv": "/index.html",
+    "controller": "/controller.html",
+    "viewer": "/viewer.html",
+    "editor": "/editor.html"
+  },
+  "folders": {
+    "engine": "public/assets/js/engine",
+    "game": "public/assets/js/game",
+    "controller": "public/assets/js/controller",
+    "editor": "public/assets/js/editor",
+    "viewer": "public/assets/js/viewer",
+    "styles": "public/assets/css"
+  }
+}

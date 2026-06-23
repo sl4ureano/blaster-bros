@@ -1,0 +1,16 @@
+{
+  "name": "platform-web-engine-low-latency",
+  "version": "1.0.0",
+  "description": "Professional platform engine tuned for low latency multiplayer",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check public/assets/js/game/game.js && node --check public/assets/js/controller/controller.js && node --check public/assets/js/editor/editor.js && node --check public/assets/js/viewer/viewer.js && node --check public/assets/js/engine/shared-renderer.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.3",
+    "ws": "^8.16.0",
+    "qrcode": "^1.5.3"
+  }
+}

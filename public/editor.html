@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Blaster Bros - Editor de Fases V2</title>
+  <link rel="stylesheet" href="/assets/css/editor.css" />
+</head>
+<body>
+  <div class="editor">
+    <aside class="sidebar">
+      <h1>Editor de Fases V2</h1>
+      <p>Zoom, pan, seleção, duplicação, preview e mais componentes.</p>
+
+      <section class="level-config">
+        <h2>Fase</h2>
+        <label>Nome <input id="levelName" value="Minha fase" /></label>
+        <label>Largura <input id="levelWidth" type="number" value="4200" step="100" /></label>
+        <label>Música
+          <select id="levelMusic">
+            <option value="fire">Fire</option>
+            <option value="toxic">Toxic</option>
+            <option value="neon">Neon</option>
+            <option value="final">Final</option>
+          </select>
+        </label>
+        <label>Fundo 1 <input id="bg1" value="#151520" /></label>
+        <label>Fundo 2 <input id="bg2" value="#1c2235" /></label>
+      </section>
+
+      <section>
+        <h2>Ferramentas</h2>
+        <div class="tool-row">
+          <button id="selectTool">Selecionar</button>
+          <button id="panTool">Pan</button>
+        </div>
+        <div class="tool-row">
+          <button id="zoomInBtn">Zoom +</button>
+          <button id="zoomOutBtn">Zoom -</button>
+          <button id="zoomResetBtn">100%</button>
+        </div>
+        <small id="viewportInfo">Zoom 100%</small>
+      </section>
+
+      <section>
+        <h2>Componentes</h2>
+        <input id="searchInput" placeholder="buscar componente..." />
+        <div id="palette" class="palette"></div>
+      </section>
+
+      <section>
+        <h2>Selecionado</h2>
+        <div id="selectedPanel" class="selected-panel">Nada selecionado</div>
+        <div class="tool-row">
+          <button id="duplicateBtn">Duplicar</button>
+          <button id="deleteBtn">Apagar</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Ações</h2>
+        <button id="playBtn">Testar no jogo</button>
+        <button id="exportBtn">Exportar JSON</button>
+        <button id="copyBtn">Copiar JSON</button>
+        <button id="clearBtn">Limpar</button>
+        <label class="file">Importar JSON <input id="importFile" type="file" accept="application/json" /></label>
+      </section>
+    </aside>
+
+    <main class="workspace">
+      <div class="topbar">
+        <span id="toolLabel">Ferramenta: selecionar</span>
+        <span>Wheel = zoom · Shift+arrastar ou botão direito = pan · Del = apagar · Ctrl+D = duplicar · Ctrl+C/V = copiar/colar</span>
+      </div>
+      <canvas id="editorCanvas" width="1280" height="720"></canvas>
+      <textarea id="jsonOutput" spellcheck="false"></textarea>
+    </main>
+  </div>
+
+  <script src="/assets/js/editor/editor.js"></script>
+</body>
+</html>

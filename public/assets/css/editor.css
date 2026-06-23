@@ -1,0 +1,97 @@
+*{box-sizing:border-box}
+body{margin:0;background:#0d0d15;color:#f5f5ff;font-family:system-ui,Segoe UI,Roboto,sans-serif;overflow:hidden}
+.editor{height:100vh;display:grid;grid-template-columns:360px 1fr}
+.sidebar{overflow:auto;padding:18px;background:#151522;border-right:1px solid rgba(255,255,255,.12)}
+h1{margin:0 0 4px;font-size:26px}
+h2{font-size:14px;margin:20px 0 8px;color:#ffe66d;text-transform:uppercase;letter-spacing:.04em}
+p,small{color:#bfc2df;margin:0 0 14px}
+label{display:block;margin:8px 0;color:#cfd1ef;font-weight:700}
+input,select,textarea,button{font:inherit}
+input,select{width:100%;padding:9px;border:0;border-radius:10px;background:#25253a;color:white}
+button,.file{display:block;width:100%;margin:7px 0;padding:10px;border:0;border-radius:12px;background:#2d2d44;color:white;font-weight:900;cursor:pointer;text-align:center}
+button:hover,.file:hover{background:#3b3b5d}
+button.active{background:#66d9ff;color:#08121f}
+.tool-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tool-row:has(> button:nth-child(3)){grid-template-columns:1fr 1fr 1fr}
+#deleteBtn{background:#ff5a7a;color:#18060a}
+#duplicateBtn{background:#66d9ff;color:#06121a}
+#playBtn{background:#57e389;color:#05160b}
+#exportBtn,#copyBtn{background:#ffe66d;color:#151005}
+.file input{display:none}
+.palette{display:grid;grid-template-columns:1fr 1fr;gap:8px;max-height:470px;overflow:auto;padding-right:4px}
+.component{min-height:88px;margin:0;padding:8px;background:#202034;border:2px solid transparent;border-radius:14px;text-align:left;display:grid;grid-template-rows:44px auto;gap:5px}
+.component.active{border-color:#66d9ff;background:#263956;color:white}
+.component-preview{height:44px;border-radius:10px;background:#10101a;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.component-name{font-size:11px;font-weight:950;line-height:1.1;color:#eef}
+.workspace{min-width:0;display:grid;grid-template-rows:auto 1fr 210px}
+.topbar{height:42px;display:flex;gap:24px;align-items:center;padding:0 14px;background:#10101a;border-bottom:1px solid rgba(255,255,255,.1);color:#bfc2df;white-space:nowrap;overflow:hidden}
+#toolLabel{color:#66d9ff;font-weight:900}
+#editorCanvas{width:100%;height:100%;background:#111827;cursor:crosshair;display:block}
+#jsonOutput{width:100%;height:210px;border:0;border-top:1px solid rgba(255,255,255,.12);padding:12px;background:#090910;color:#d7f9ff;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}
+.selected-panel{padding:10px;border-radius:10px;background:#202034;color:#dbe0ff;min-height:120px;font-family:ui-monospace,monospace;font-size:12px;white-space:pre-wrap}
+.selected-panel label{font-size:11px;margin:6px 0}
+.selected-panel input,.selected-panel select{padding:6px;font-size:12px}
+
+
+/* Correção do painel esquerdo do editor */
+html,
+body{
+  width:100%;
+  height:100%;
+  overflow:visible;
+}
+
+.editor{
+  height:100dvh !important;
+  min-height:0 !important;
+  overflow:hidden !important;
+}
+
+.sidebar{
+  height:100dvh !important;
+  min-height:0 !important;
+  overflow-y:auto !important;
+  overflow-x:hidden !important;
+  padding:18px 18px 80px 18px !important;
+  scroll-padding-top:18px;
+}
+
+.sidebar > h1,
+.sidebar > p,
+.sidebar > section{
+  position:relative;
+  z-index:1;
+}
+
+.sidebar section:first-of-type{
+  margin-top:10px;
+}
+
+.palette{
+  max-height:360px !important;
+  min-height:160px;
+  overflow-y:auto !important;
+}
+
+.workspace{
+  min-height:0 !important;
+  overflow:hidden !important;
+}
+
+@media (max-height:760px){
+  .palette{
+    max-height:280px !important;
+  }
+
+  h1{
+    font-size:22px !important;
+  }
+
+  h2{
+    margin:14px 0 7px !important;
+  }
+
+  .sidebar{
+    padding-top:14px !important;
+  }
+}
