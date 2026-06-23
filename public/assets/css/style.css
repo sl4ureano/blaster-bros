@@ -2003,8 +2003,8 @@ body.controller-body .stats{
 /* === FINAL: pontos/kills no lado esquerdo, junto ao subtítulo === */
 header .stats{
   position:absolute!important;
-  left:38px!important;
-  top:58px!important;
+  left:-300px!important;
+  top:25px!important;
   transform:none!important;
   z-index:80!important;
   margin:0!important;

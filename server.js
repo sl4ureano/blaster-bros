@@ -29,6 +29,46 @@ function getLocalIp() {
   return "localhost";
 }
 
+function firstHeaderValue(value) {
+  return String(Array.isArray(value) ? value[0] : value || "").split(",")[0].trim();
+}
+
+function hostnameFromHost(host) {
+  const value = String(host || "").trim().toLowerCase();
+  if (value.startsWith("[")) {
+    const end = value.indexOf("]");
+    return end >= 0 ? value.slice(1, end) : value;
+  }
+  return value.split(":")[0];
+}
+
+function portFromHost(host) {
+  const value = String(host || "").trim();
+  if (value.startsWith("[")) {
+    const end = value.indexOf("]");
+    return end >= 0 && value[end + 1] === ":" ? value.slice(end + 2) : "";
+  }
+  const parts = value.split(":");
+  return parts.length > 1 ? parts.pop() : "";
+}
+
+function isLoopbackHost(host) {
+  const hostname = hostnameFromHost(host);
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0" || hostname === "::1";
+}
+
+function getPublicOrigin(req) {
+  if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL.replace(/\/+$/, "");
+
+  const protocol = firstHeaderValue(req.headers["x-forwarded-proto"]) || req.protocol || "http";
+  const host = firstHeaderValue(req.headers["x-forwarded-host"]) || firstHeaderValue(req.headers.host) || `localhost:${PORT}`;
+
+  if (!isLoopbackHost(host)) return `${protocol}://${host}`;
+
+  const port = portFromHost(host) || PORT;
+  return `${protocol}://${getLocalIp()}:${port}`;
+}
+
 function makeCode() {
   return Math.random().toString(36).slice(2, 6).toUpperCase();
 }
@@ -41,6 +81,16 @@ function broadcast(session, payload) {
   send(session.tv, payload);
   for (const item of session.controllers.values()) send(item.ws, payload);
   for (const viewer of session.viewers || []) send(viewer, payload);
+}
+
+function sessionPlayers(session) {
+  return [...session.clientSlots.entries()]
+    .map(([clientId, playerId]) => ({
+      clientId,
+      playerId,
+      connected: !!session.controllers.get(playerId)
+    }))
+    .sort((a,b)=>a.playerId-b.playerId);
 }
 
 app.get("/new-session", async (req, res) => {
@@ -57,10 +107,7 @@ app.get("/new-session", async (req, res) => {
     nextPlayerId: 1
   });
 
-  const publicUrl = process.env.PUBLIC_URL;
-  const protocol = req.headers["x-forwarded-proto"] || req.protocol || "http";
-  const host = req.headers.host || `localhost:${PORT}`;
-  const origin = publicUrl || `${protocol}://${host}`;
+  const origin = getPublicOrigin(req);
   const controllerUrl = `${origin}/controller.html?code=${code}`;
   const playUrl = `${origin}/play?code=${code}`;
   const spectatorUrl = `${origin}/spectator?code=${code}`;
@@ -154,15 +201,11 @@ wss.on("connection", (ws) => {
         code: session.code,
         playerId,
         clientId,
-        players: [...session.clientSlots.entries()]
-          .map(([clientId, playerId]) => ({ clientId, playerId }))
-          .sort((a,b)=>a.playerId-b.playerId)
+        players: sessionPlayers(session)
       });
       broadcast(session, {
         type: "players",
-        players: [...session.clientSlots.entries()]
-          .map(([clientId, playerId]) => ({ clientId, playerId }))
-          .sort((a,b)=>a.playerId-b.playerId)
+        players: sessionPlayers(session)
       });
       return;
     }
@@ -196,16 +239,12 @@ wss.on("connection", (ws) => {
         code: session.code,
         playerId: requested,
         clientId: ws.clientId,
-        players: [...session.clientSlots.entries()]
-          .map(([clientId, playerId]) => ({ clientId, playerId }))
-          .sort((a,b)=>a.playerId-b.playerId)
+        players: sessionPlayers(session)
       });
 
       broadcast(session, {
         type: "players",
-        players: [...session.clientSlots.entries()]
-          .map(([clientId, playerId]) => ({ clientId, playerId }))
-          .sort((a,b)=>a.playerId-b.playerId)
+        players: sessionPlayers(session)
       });
       return;
     }
@@ -221,7 +260,7 @@ wss.on("connection", (ws) => {
       send(ws, {
         type: "viewer-ready",
         code: session.code,
-        players: [...session.clientSlots.entries()].map(([clientId, playerId]) => ({ clientId, playerId })),
+        players: sessionPlayers(session),
         lastFrame: session.lastFrame
       });
       return;
@@ -275,9 +314,7 @@ wss.on("connection", (ws) => {
       // Mantém o slot reservado para o mesmo aparelho reconectar sem virar outro boneco.
       broadcast(session, {
         type: "players",
-        players: [...session.clientSlots.entries()]
-          .map(([clientId, playerId]) => ({ clientId, playerId }))
-          .sort((a,b)=>a.playerId-b.playerId)
+        players: sessionPlayers(session)
       });
     }
 

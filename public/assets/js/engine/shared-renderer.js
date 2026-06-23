@@ -1,6 +1,39 @@
 (function(){
   const colors = ["#66d9ff", "#ff5a7a", "#ffe66d", "#57e389"];
   const names = ["Azul", "Rosa", "Amarelo", "Verde"];
+  const weaponShortNames = {
+    Pistola: "PST",
+    Metralha: "MET",
+    Escopeta: "ESC",
+    Laser: "LSR",
+    Plasma: "PLS",
+    Rajada: "RAJ",
+    Sniper: "SNP",
+    Chamas: "FGO",
+    Gelo: "GEL",
+    "Ácido": "ACD",
+    Foguete: "FOG",
+    Railgun: "RAIL",
+    Bumerangue: "BUM",
+    Tripla: "TRI",
+    Agulha: "AGU",
+    "Canhão": "CAN",
+    "Faísca": "FAI",
+    Onda: "OND",
+    "Lâmina": "LAM",
+    Pulso: "PUL",
+    Espinho: "ESP",
+    Magnum: "MAG",
+    Minigun: "MIN",
+    Estrela: "EST",
+    Orbe: "ORB",
+    Tempestade: "TMP",
+    "Tóxica": "TOX",
+    Serra: "SER",
+    Nova: "NOV",
+    Fantasma: "FAN",
+    "Dragão": "DRA"
+  };
 
   function color(id){ return colors[(id-1)%colors.length]; }
   function pname(id){ return names[(id-1)%names.length] || `J${id}`; }
@@ -28,6 +61,94 @@
     function pxRect(x,y,w,h,c){
       ctx.fillStyle=c;
       ctx.fillRect(Math.round(x),Math.round(y),Math.round(w),Math.round(h));
+    }
+
+    function drawDropIcon(item){
+      const iw = Number.isFinite(item.w) ? item.w : 24;
+      const ih = Number.isFinite(item.h) ? item.h : 24;
+      const x = worldX(Number.isFinite(item.x) ? item.x : 0);
+      const y = Number.isFinite(item.y) ? item.y : 0;
+      const cx = x + iw / 2;
+      const cy = y + ih / 2 + Math.sin((s.time || 0) * .08 + (item.x || 0) * .01) * 2;
+      const type = item.type || "unknown";
+      const accent = type === "weapon" ? "#66d9ff" : type === "life" ? "#ff5a7a" : type === "heal" ? "#57e389" : type === "revive" ? "#d386ff" : type === "bombs" ? "#ff9f43" : "#ffe66d";
+
+      ctx.save();
+      ctx.shadowColor = accent;
+      ctx.shadowBlur = 16;
+
+      if(type === "heal"){
+        ctx.fillStyle = "#f8f8f2";
+        ctx.fillRect(cx - 15, cy - 11, 30, 22);
+        ctx.strokeStyle = "#57e389";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(cx - 15, cy - 11, 30, 22);
+        ctx.fillStyle = "#57e389";
+        ctx.fillRect(cx - 4, cy - 9, 8, 18);
+        ctx.fillRect(cx - 11, cy - 3, 22, 7);
+      } else if(type === "life"){
+        ctx.fillStyle = "#ff5a7a";
+        ctx.beginPath();
+        ctx.moveTo(cx, cy + 11);
+        ctx.bezierCurveTo(cx - 22, cy - 2, cx - 10, cy - 18, cx, cy - 8);
+        ctx.bezierCurveTo(cx + 10, cy - 18, cx + 22, cy - 2, cx, cy + 11);
+        ctx.fill();
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      } else if(type === "revive"){
+        ctx.translate(cx, cy);
+        ctx.rotate(Math.PI / 4);
+        ctx.fillStyle = "#d386ff";
+        ctx.fillRect(-14, -14, 28, 28);
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(-14, -14, 28, 28);
+        ctx.rotate(-Math.PI / 4);
+        ctx.beginPath();
+        ctx.arc(0, 0, 10, -0.75, Math.PI * 1.45);
+        ctx.stroke();
+        ctx.fillStyle = "#fff";
+        ctx.beginPath();
+        ctx.moveTo(10, -8);
+        ctx.lineTo(16, -8);
+        ctx.lineTo(12, -2);
+        ctx.fill();
+        ctx.fillRect(-3, -8, 6, 16);
+        ctx.fillRect(-8, -3, 16, 6);
+      } else if(type === "bombs"){
+        ctx.fillStyle = "#111";
+        ctx.beginPath();
+        ctx.arc(cx, cy + 3, 13, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#ff9f43";
+        ctx.fillRect(cx - 4, cy - 13, 8, 9);
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(cx + 10, cy - 11, 6, Math.PI * .9, Math.PI * 1.9);
+        ctx.stroke();
+      } else if(type === "weapon"){
+        ctx.fillStyle = accent;
+        ctx.fillRect(cx - 19, cy - 5, 31, 10);
+        ctx.fillRect(cx + 8, cy - 9, 14, 5);
+        ctx.fillRect(cx - 8, cy + 5, 9, 11);
+        ctx.fillStyle = "#e9edf7";
+        ctx.fillRect(cx - 15, cy - 2, 17, 4);
+      } else {
+        ctx.fillStyle = "#ffe66d";
+        ctx.beginPath();
+        ctx.moveTo(cx + 3, cy - 15);
+        ctx.lineTo(cx - 8, cy + 2);
+        ctx.lineTo(cx, cy + 2);
+        ctx.lineTo(cx - 3, cy + 15);
+        ctx.lineTo(cx + 10, cy - 4);
+        ctx.lineTo(cx + 2, cy - 4);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      ctx.restore();
     }
 
     function drawHeroBall(x,y,r,fill,extra={}){
@@ -354,7 +475,7 @@
       pxRect(-18,-6+armSwing,7,21,dark); pxRect(11,-6-armSwing*.4,7,21,dark);
       pxRect(-15,-32-runSpeed*Math.abs(run),30,22,suit); pxRect(-11,-36-runSpeed*Math.abs(run),22,8,suit);
       pxRect(-10,-27-runSpeed*Math.abs(run),21,8,visor); pxRect(3,-25-runSpeed*Math.abs(run),8,4,"#ffffff");
-      ctx.save(); const ang=Math.atan2(p.aimY||0,p.aimX||1)*(flip?-1:1); ctx.translate(14-recoil*2,-4); ctx.rotate(ang);
+      ctx.save(); const aimX=Number.isFinite(p.aimX)?p.aimX:(p.facing||1), aimY=Number.isFinite(p.aimY)?p.aimY:0; const ang=Math.atan2(aimY, flip?-aimX:aimX); ctx.translate(14-recoil*2,-4); ctx.rotate(ang);
       pxRect(0,-4,26,8,gun); pxRect(22,-2,10,4,"#9aa4b2"); pxRect(5,4,8,8,dark);
       if(recoil>.4){ctx.fillStyle="#ffe66d";ctx.beginPath();ctx.moveTo(34,0);ctx.lineTo(44,-6);ctx.lineTo(40,0);ctx.lineTo(44,6);ctx.fill();}
       ctx.restore();
@@ -414,10 +535,6 @@
       ctx.globalAlpha=1;
     }
 
-    for(const item of s.pickups || []) {
-      if(!item) continue;
-      drawDropIcon(item);
-    }
     for(const g of s.grenades||[]){
       ctx.fillStyle="#ffb86b";ctx.beginPath();ctx.arc(worldX(g.x+6),g.y+6,8,0,Math.PI*2);ctx.fill();
     }
@@ -439,6 +556,10 @@
       ctx.fillRect(worldX(part.x),part.y,4,4);
       ctx.globalAlpha=1;
     }
+    for(const item of s.pickups || []) {
+      if(!item) continue;
+      drawDropIcon(item);
+    }
     drawArcadeHud();
 
     if(!s.started && (s.players||[]).length===0){
@@ -448,11 +569,15 @@
     }
 
     if(s.pausedByConnection && s.started && !s.lobby){
-      ctx.fillStyle="rgba(0,0,0,.48)";ctx.fillRect(0,0,W,H);
-      ctx.fillStyle="#ffe66d";ctx.textAlign="center";ctx.font="900 42px system-ui";
-      ctx.fillText("PAUSADO",W/2,H/2-10);
-      ctx.font="700 20px system-ui";ctx.fillStyle="rgba(255,255,255,.86)";
-      ctx.fillText("Menu Conexão aberto no controle",W/2,H/2+32);
+      const subtitle = s.pausedReason === "disconnect" ? "Controle desconectado. Reconecte para continuar." : "Menu Conexão aberto no controle.";
+      ctx.fillStyle="rgba(0,0,0,.72)";ctx.fillRect(0,0,W,H);
+      ctx.fillStyle="rgba(8,8,12,.92)";ctx.fillRect(W/2-300,H/2-98,600,176);
+      ctx.strokeStyle="#ffe66d";ctx.lineWidth=4;ctx.strokeRect(W/2-300,H/2-98,600,176);
+      ctx.fillStyle="rgba(255,230,109,.12)";ctx.fillRect(W/2-286,H/2-84,572,28);
+      ctx.fillStyle="#ffe66d";ctx.textAlign="center";ctx.font="900 52px system-ui";
+      ctx.fillText("PAUSADO",W/2,H/2-18);
+      ctx.font="800 23px system-ui";ctx.fillStyle="rgba(255,255,255,.86)";
+      ctx.fillText(subtitle,W/2,H/2+34);
     }
 
     if(s.lobby){

@@ -12,6 +12,7 @@ const aimStick = document.getElementById("aimStick");
 const grenadeBtn = document.getElementById("bombBtn");
 const jumpBtn = document.getElementById("jumpBtn");
 const readyBtn = document.getElementById("readyBtn");
+const restartBtn = document.getElementById("restartBtn");
 const difficultyEl = document.getElementById("difficulty");
 const controllerEl = document.querySelector(".controller");
 
@@ -39,6 +40,7 @@ let input = {
   grenadeSeq:0,
   ready:false,
   start:false,
+  restart:false,
   difficulty:'normal',
   down:false,
   pauseMenu:false
@@ -49,6 +51,7 @@ let inputDirty = true;
 let inputTick = null;
 let lastMoveTap = 0;
 let jumpPulseTimer = null;
+let tvGameState = { started:false, lobby:true, levelIndex:0, levelName:"" };
 manualCode.value = code;
 
 function setStatus(text){ statusEl.textContent = text; }
@@ -92,6 +95,23 @@ function enterGameplayMode() {
   }
   resizeSticks();
   applySavedControlLayoutAfterGameplayStart();
+}
+
+function applyTvGameState(state = {}) {
+  tvGameState = {
+    ...tvGameState,
+    ...state,
+    started: !!state.started,
+    lobby: !!state.lobby
+  };
+
+  if (tvGameState.started && !tvGameState.lobby) {
+    enterGameplayMode();
+    const level = tvGameState.levelName ? ` · ${tvGameState.levelName}` : "";
+    setStatus(`Controle ativo${level}.`);
+  } else {
+    enterLobbyMode("Lobby. Toque em COMEÇAR para iniciar.");
+  }
 }
 
 async function fullscreen(){
@@ -177,7 +197,12 @@ function connect(){
     const msg = JSON.parse(event.data);
 
     if (msg.type === "tv-event" && msg.event === "game-over") {
-      enterLobbyMode();
+      applyTvGameState({started:false, lobby:true});
+      return;
+    }
+
+    if (msg.type === "tv-event" && msg.event === "game-state") {
+      applyTvGameState(msg);
       return;
     }
 
@@ -189,7 +214,7 @@ function connect(){
       localStorage.setItem(PLAYER_COLOR_KEY, String(preferredPlayerId));
       playerEl.textContent = `Jogador ${msg.playerId}`;
       updateColorChoices(msg.players || takenPlayers);
-      setStatus("Conectado. Escolha dificuldade e COMEÇAR.");
+      setStatus(tvGameState.started && !tvGameState.lobby ? "Reconectado. Continuando partida." : "Conectado. Escolha dificuldade e COMEÇAR.");
       connectBtn.textContent = "Reconectar";
       startInputPump();
       send(true);
@@ -394,6 +419,12 @@ grenadeBtn.addEventListener("lostpointercapture", releaseGrenade, {passive:false
 readyBtn.addEventListener("click", e => {
   e.preventDefault();
 
+  if (tvGameState.started && !tvGameState.lobby) {
+    enterGameplayMode();
+    send(true);
+    return;
+  }
+
   input.ready = true;
   input.start = true;
   send(true);
@@ -408,6 +439,21 @@ readyBtn.addEventListener("click", e => {
   setTimeout(() => {
     input.start = false;
     input.ready = false;
+    send(true);
+  }, 120);
+});
+
+restartBtn?.addEventListener("click", e => {
+  e.preventDefault();
+  if (!confirm("Reiniciar a fase atual?")) return;
+
+  input.restart = true;
+  send(true);
+  navigator.vibrate?.(120);
+  setStatus("Reiniciando fase atual...");
+
+  setTimeout(() => {
+    input.restart = false;
     send(true);
   }, 120);
 });

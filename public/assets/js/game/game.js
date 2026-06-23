@@ -232,36 +232,38 @@ function drawDropIcon(ctx, item, sx, sy, time=0){
     ctx.bezierCurveTo(cx-22,cy-2,cx-10,cy-18,cx,cy-8);
     ctx.bezierCurveTo(cx+10,cy-18,cx+22,cy-2,cx,cy+11);
     ctx.fill();
-    ctx.fillStyle="#fff";
-    ctx.font="900 11px system-ui";
-    ctx.textAlign="center";
-    ctx.fillText("1",cx,cy+4);
+    ctx.strokeStyle="#fff";
+    ctx.lineWidth=2;
+    ctx.stroke();
   } else if(type==="revive"){
-    // Revive / cruz + setas
+    // Revive / losango + cruz + seta
+    ctx.save();
+    ctx.translate(cx,cy);
+    ctx.rotate(Math.PI/4);
     ctx.fillStyle="#d386ff";
-    ctx.beginPath(); ctx.arc(cx,cy,16,0,Math.PI*2); ctx.fill();
+    ctx.fillRect(-15,-15,30,30);
     ctx.strokeStyle="#fff"; ctx.lineWidth=3;
-    ctx.beginPath(); ctx.arc(cx,cy,11,-0.7,Math.PI*1.45); ctx.stroke();
+    ctx.strokeRect(-15,-15,30,30);
+    ctx.rotate(-Math.PI/4);
+    ctx.beginPath(); ctx.arc(0,0,11,-0.7,Math.PI*1.45); ctx.stroke();
     ctx.fillStyle="#fff";
-    ctx.beginPath(); ctx.moveTo(cx+11,cy-9); ctx.lineTo(cx+17,cy-9); ctx.lineTo(cx+13,cy-3); ctx.fill();
-    ctx.fillRect(cx-3,cy-9,6,18);
-    ctx.fillRect(cx-9,cy-3,18,6);
+    ctx.beginPath(); ctx.moveTo(11,-9); ctx.lineTo(17,-9); ctx.lineTo(13,-3); ctx.fill();
+    ctx.fillRect(-3,-9,6,18);
+    ctx.fillRect(-9,-3,18,6);
+    ctx.restore();
   } else if(type==="bombs"){
-    ctx.fillStyle="#ff9f43";
-    ctx.beginPath(); ctx.arc(cx,cy,15,0,Math.PI*2); ctx.fill();
     ctx.fillStyle="#111";
-    ctx.beginPath(); ctx.arc(cx,cy+2,8,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle="#ff9f43"; ctx.fillRect(cx-3,cy-11,7,8);
-    ctx.fillStyle="#fff"; ctx.font="900 10px system-ui"; ctx.textAlign="center";
-    ctx.fillText(`+${item.amount||2}`,cx,cy+5);
+    ctx.beginPath(); ctx.arc(cx,cy+3,14,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle="#ff9f43"; ctx.fillRect(cx-4,cy-14,8,10);
+    ctx.strokeStyle="#fff";
+    ctx.lineWidth=2;
+    ctx.beginPath();
+    ctx.arc(cx+10,cy-12,6,Math.PI*.9,Math.PI*1.9);
+    ctx.stroke();
   } else if(type==="weapon"){
     const id = item.weaponId || "weapon";
     const kind = weaponIconKind(id);
     const col = weaponById ? (weaponById(id).color || "#66d9ff") : "#66d9ff";
-    ctx.fillStyle="rgba(0,0,0,.72)";
-    ctx.beginPath(); ctx.roundRect?.(cx-18,cy-15,36,30,8) || ctx.rect(cx-18,cy-15,36,30); ctx.fill();
-    ctx.strokeStyle=col; ctx.lineWidth=3; ctx.strokeRect(cx-18,cy-15,36,30);
-
     ctx.fillStyle=col;
     if(kind==="shotgun"){
       ctx.fillRect(cx-14,cy-3,24,7); ctx.fillRect(cx+6,cy-6,14,4); ctx.fillRect(cx-10,cy+4,8,6);
@@ -287,15 +289,17 @@ function drawDropIcon(ctx, item, sx, sy, time=0){
     }
 
     ctx.shadowBlur = 0;
-    ctx.fillStyle="#fff";
-    ctx.font="900 9px system-ui";
-    ctx.textAlign="center";
-    const label = String(item.weaponName || id).slice(0,5).toUpperCase();
-    ctx.fillText(label,cx,cy+24);
   } else {
     ctx.fillStyle="#ffe66d";
-    ctx.beginPath(); ctx.arc(cx,cy,13,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle="#111"; ctx.font="900 13px system-ui"; ctx.textAlign="center"; ctx.fillText("R",cx,cy+5);
+    ctx.beginPath();
+    ctx.moveTo(cx+3,cy-15);
+    ctx.lineTo(cx-8,cy+2);
+    ctx.lineTo(cx,cy+2);
+    ctx.lineTo(cx-3,cy+15);
+    ctx.lineTo(cx+10,cy-4);
+    ctx.lineTo(cx+2,cy-4);
+    ctx.closePath();
+    ctx.fill();
   }
 
   ctx.restore();
@@ -341,7 +345,8 @@ const game = {
   difficulty:"normal",
   difficultyMultiplier:1,
   gameOverHandled:false,
-  pausedByConnection:false
+  pausedByConnection:false,
+  pausedByDisconnect:false
 };
 
 const levels = [
@@ -756,7 +761,7 @@ function spawnGuaranteedWeaponDrops(){
   for(let i=0;i<count;i++){
     const w = randomWeapon();
     const x = clamp(520 + i * 620 + Math.random()*260, 180, game.level.width - 220);
-    game.pickups.push({type:"weapon",weaponId:w.id,weaponName:w.name,ammo:w.ammo,x,y:floorY,w:30,h:30});
+    game.pickups.push({type:"weapon",weaponId:w.id,weaponName:w.name,ammo:w.ammo,x,y:floorY,w:30,h:30,born:game.time});
   }
 }
 
@@ -767,26 +772,26 @@ function dropLootFromEnemy(e){
 
   if(e.boss){
     const wpn = randomWeapon();
-    game.pickups.push({type:"life",x:x-34,y,w:24,h:24});
-    game.pickups.push({type:deadNeedRevive?"revive":"heal",x:x,y,w:24,h:24});
-    game.pickups.push({type:"weapon",weaponId:wpn.id,weaponName:wpn.name,ammo:wpn.ammo,x:x+34,y,w:30,h:30});
-    game.pickups.push({type:"bombs",amount:10,x:x+72,y,w:26,h:26});
+    game.pickups.push({type:"life",x:x-34,y,w:24,h:24,born:game.time});
+    game.pickups.push({type:deadNeedRevive?"revive":"heal",x:x,y,w:24,h:24,born:game.time});
+    game.pickups.push({type:"weapon",weaponId:wpn.id,weaponName:wpn.name,ammo:wpn.ammo,x:x+34,y,w:30,h:30,born:game.time});
+    game.pickups.push({type:"bombs",amount:10,x:x+72,y,w:26,h:26,born:game.time});
     return;
   }
 
   if(deadNeedRevive && roll < 0.12){
-    game.pickups.push({type:"revive",x,y,w:26,h:26});
+    game.pickups.push({type:"revive",x,y,w:26,h:26,born:game.time});
   } else if(roll < 0.20){
-    game.pickups.push({type:"heal",x,y,w:24,h:24});
+    game.pickups.push({type:"heal",x,y,w:24,h:24,born:game.time});
   } else if(roll < 0.26){
-    game.pickups.push({type:"life",x,y,w:24,h:24});
+    game.pickups.push({type:"life",x,y,w:24,h:24,born:game.time});
   } else if(roll < 0.42){
     const wpn = randomWeapon();
-    game.pickups.push({type:"weapon",weaponId:wpn.id,weaponName:wpn.name,ammo:wpn.ammo,x,y,w:30,h:30});
+    game.pickups.push({type:"weapon",weaponId:wpn.id,weaponName:wpn.name,ammo:wpn.ammo,x,y,w:30,h:30,born:game.time});
   } else if(roll < 0.54){
-    game.pickups.push({type:"bombs",amount:Math.random()<0.8?2:5,x,y,w:26,h:26});
+    game.pickups.push({type:"bombs",amount:Math.random()<0.8?2:5,x,y,w:26,h:26,born:game.time});
   } else if(roll < 0.62){
-    game.pickups.push({type:"rapid",x,y,w:24,h:24});
+    game.pickups.push({type:"rapid",x,y,w:24,h:24,born:game.time});
   }
 }
 
@@ -1056,8 +1061,14 @@ async function initNetwork(){
       playersConnected=msg.players || [];
       playerColors = {};
       for (const p of playersConnected) playerColors[p.playerId] = p.playerId;
-      playersEl.textContent=`Jogadores: ${playersConnected.length}/4`;
-      syncPlayers(); statusEl.textContent=playersConnected.length?"Partida iniciada!":"Aguardando controle";
+      const connectedCount = playersConnected.filter(p => p.connected !== false).length;
+      playersEl.textContent=`Jogadores: ${connectedCount}/${playersConnected.length || 4}`;
+      syncPlayers();
+      updateDisconnectPause();
+      statusEl.textContent = game.pausedByDisconnect
+        ? "Controle desconectado. Jogo pausado."
+        : playersConnected.length ? "Partida iniciada!" : "Aguardando controle";
+      notifyGameState();
     }
     if(msg.type==="input") {
       if (msg.input?.hudAction) {
@@ -1066,7 +1077,9 @@ async function initNetwork(){
       }
 
       if (msg.input?.pauseMenu !== undefined) {
+        const wasPaused = game.pausedByConnection;
         game.pausedByConnection = !!msg.input.pauseMenu;
+        if (wasPaused !== game.pausedByConnection) invalidateFrameState();
       }
 
       const previous = inputs[msg.playerId] || {move:{x:0,y:0}, aim:{x:1,y:0}, shooting:false, jump:false, grenade:false, down:false};
@@ -1079,6 +1092,11 @@ async function initNetwork(){
 
       if (msg.input?.difficulty) {
         setDifficulty(msg.input.difficulty);
+      }
+
+      if (msg.input?.restart) {
+        restartCurrentLevel();
+        return;
       }
 
       if (msg.input?.ready) {
@@ -1102,6 +1120,12 @@ function setDifficulty(mode) {
 }
 
 function startGameFromLobby(mode = game.difficulty) {
+  if (game.started && !game.lobby) {
+    statusEl.textContent = "Partida em andamento.";
+    notifyGameState();
+    return;
+  }
+
   if (!game.readyPlayers || game.readyPlayers.size === 0) {
     statusEl.textContent = "Aguardando COMEÇAR no controle.";
     return;
@@ -1131,6 +1155,7 @@ function startGameFromLobby(mode = game.difficulty) {
   loadLevel(0);
   for (const p of game.players.values()) ensureBombs(p);
   renderStats();
+  notifyGameState();
 }
 
 
@@ -1469,7 +1494,8 @@ function updatePlayer(p){
     }
   }
   for(const item of game.pickups){
-    if(!item.dead&&rects(p,item)){
+    const pickupAge = Number.isFinite(item.born) ? game.time - item.born : Infinity;
+    if(!item.dead&&pickupAge>=24&&rects(p,item)){
       item.dead=true;
       if(item.type==="heal") {
         p.hp=Math.min(p.maxHp,p.hp+40);
@@ -1845,6 +1871,45 @@ function notifyControllers(payload) {
   } catch {}
 }
 
+function notifyGameState() {
+  notifyControllers({
+    event: "game-state",
+    started: game.started,
+    lobby: game.lobby,
+    levelIndex: game.levelIndex,
+    levelName: game.level?.name || ""
+  });
+}
+
+function updateDisconnectPause() {
+  const wasPaused = game.pausedByDisconnect;
+
+  if (!game.started || game.lobby || playersConnected.length === 0) {
+    game.pausedByDisconnect = false;
+    if (wasPaused !== game.pausedByDisconnect) invalidateFrameState();
+    return;
+  }
+
+  game.pausedByDisconnect = playersConnected.some(p => p.connected === false);
+  if (wasPaused !== game.pausedByDisconnect) invalidateFrameState();
+}
+
+function isGamePaused() {
+  return (game.pausedByConnection || game.pausedByDisconnect) && game.started && !game.lobby;
+}
+
+function restartCurrentLevel() {
+  if (game.lobby) return;
+  game.gameOverHandled = false;
+  game.started = true;
+  game.lobby = false;
+  statusEl.textContent = "Fase reiniciada pelo controle.";
+  loadLevel(game.levelIndex || 0);
+  for (const p of game.players.values()) ensureBombs(p);
+  renderStats();
+  notifyGameState();
+}
+
 function enterGameOverLobby() {
   if (game.gameOverHandled) return;
   game.gameOverHandled = true;
@@ -1885,7 +1950,7 @@ function updateCamera(){
 }
 
 function update(){
-  if(game.pausedByConnection && game.started && !game.lobby){
+  if(isGamePaused()){
     for(const m of game.messages)m.life--;
     game.messages=game.messages.filter(m=>m.life>0);
     return;
@@ -2327,7 +2392,10 @@ function drawPixelHero(p){
 
   // arma com recoil
   ctx.save();
-  const ang = Math.atan2(p.aimY || 0,p.aimX || p.facing || 1) * (flip?-1:1);
+  const aimX = Number.isFinite(p.aimX) ? p.aimX : (p.facing || 1);
+  const aimY = Number.isFinite(p.aimY) ? p.aimY : 0;
+  const localAimX = flip ? -aimX : aimX;
+  const ang = Math.atan2(aimY, localAimX);
   ctx.translate(14 - recoil*2,-4);
   ctx.rotate(ang);
   pxRect(0,-4,26,8,gun);
@@ -2541,10 +2609,6 @@ function draw(){
     ctx.strokeStyle=active?"#66d9ff":"rgba(255,255,255,.25)";ctx.lineWidth=4;ctx.strokeRect(sx,portal.y,portal.w,portal.h);
     ctx.fillStyle=active?"#66d9ff":"rgba(255,255,255,.55)";ctx.font="900 16px system-ui";ctx.textAlign="center";ctx.fillText(active?"PORTAL":"BLOQUEADO",sx+portal.w/2,portal.y-12);ctx.globalAlpha=1;
   }
-  for(const item of game.pickups || []){
-    if(!item || item.dead) continue;
-    drawDropIcon(ctx, item, worldToScreen(Number.isFinite(item.x) ? item.x : 0), Number.isFinite(item.y) ? item.y : 0, game.time);
-  }
   for(const g of game.grenades){ctx.fillStyle="#ffb86b";ctx.beginPath();ctx.arc(worldToScreen(g.x+6),g.y+6,8,0,Math.PI*2);ctx.fill();}
   for(const b of game.bullets){
     const bx=worldToScreen(b.x);
@@ -2557,21 +2621,35 @@ function draw(){
   for(const e of game.enemies) drawEnemy(e);
   for(const p of game.players.values()) drawPlayer(p);
   for(const part of game.particles){ctx.globalAlpha=Math.max(0,part.life/40);ctx.fillStyle=part.color;ctx.fillRect(worldToScreen(part.x),part.y,4,4);ctx.globalAlpha=1;}
+  for(const item of game.pickups || []){
+    if(!item || item.dead) continue;
+    drawDropIcon(ctx, item, worldToScreen(Number.isFinite(item.x) ? item.x : 0), Number.isFinite(item.y) ? item.y : 0, game.time);
+  }
   ctx.restore();
   drawArcadeHud();
   if(game.messages[0]){ctx.textAlign="center";ctx.font="900 42px system-ui";ctx.fillStyle="#ffe66d";ctx.fillText(game.messages[0].text,W/2,160);}
   if(!game.started&&playersConnected.length===0){ctx.fillStyle="rgba(0,0,0,.58)";ctx.fillRect(0,0,W,H);ctx.fillStyle="#fff";ctx.textAlign="center";ctx.font="900 52px system-ui";ctx.fillText("Aguardando controles",W/2,H/2-18);ctx.font="600 24px system-ui";ctx.fillStyle="rgba(255,255,255,.8)";ctx.fillText("Escaneie o QR ou teste no teclado",W/2,H/2+30);}
 
-  if(game.pausedByConnection && game.started && !game.lobby){
-    ctx.fillStyle="rgba(0,0,0,.48)";
+  if(isGamePaused()){
+    const subtitle = game.pausedByDisconnect
+      ? "Controle desconectado. Reconecte para continuar."
+      : "Menu Conexão aberto no controle.";
+    ctx.fillStyle="rgba(0,0,0,.72)";
     ctx.fillRect(0,0,W,H);
+    ctx.fillStyle="rgba(8,8,12,.92)";
+    ctx.fillRect(W/2-300,H/2-98,600,176);
+    ctx.strokeStyle="#ffe66d";
+    ctx.lineWidth=4;
+    ctx.strokeRect(W/2-300,H/2-98,600,176);
+    ctx.fillStyle="rgba(255,230,109,.12)";
+    ctx.fillRect(W/2-286,H/2-84,572,28);
     ctx.fillStyle="#ffe66d";
     ctx.textAlign="center";
-    ctx.font="900 42px system-ui";
-    ctx.fillText("PAUSADO", W/2, H/2 - 10);
-    ctx.font="700 20px system-ui";
+    ctx.font="900 52px system-ui";
+    ctx.fillText("PAUSADO", W/2, H/2 - 18);
+    ctx.font="800 23px system-ui";
     ctx.fillStyle="rgba(255,255,255,.86)";
-    ctx.fillText("Menu Conexão aberto no controle", W/2, H/2 + 32);
+    ctx.fillText(subtitle, W/2, H/2 + 34);
   }
 
   if(game.lobby){
@@ -2658,11 +2736,20 @@ function drawEnemy(e){
 let lastStateSyncAt = 0;
 let cachedFrameState = null;
 let cachedFrameTime = -1;
+let cachedFramePauseKey = "";
+
+function invalidateFrameState(){
+  cachedFrameState = null;
+  cachedFrameTime = -1;
+  cachedFramePauseKey = "";
+}
 
 function currentFrameState(){
-  if(cachedFrameTime !== game.time || !cachedFrameState){
+  const pauseKey = `${game.started}:${game.lobby}:${game.pausedByConnection}:${game.pausedByDisconnect}`;
+  if(cachedFrameTime !== game.time || cachedFramePauseKey !== pauseKey || !cachedFrameState){
     cachedFrameState = serializeGameState();
     cachedFrameTime = game.time;
+    cachedFramePauseKey = pauseKey;
   }
   return cachedFrameState;
 }
@@ -2674,7 +2761,8 @@ function serializeGameState(){
     t:Date.now(),
     started:game.started,
     lobby:game.lobby,
-    pausedByConnection:game.pausedByConnection,
+    pausedByConnection:game.pausedByConnection || game.pausedByDisconnect,
+    pausedReason:game.pausedByDisconnect ? "disconnect" : game.pausedByConnection ? "connection-menu" : "",
     levelIndex:game.levelIndex,
     levelName:game.level?.name || "",
     levelWidth:game.level?.width || W,
@@ -2714,7 +2802,8 @@ function serializeGameState(){
       weaponId:p.weaponId,
       weaponName:p.weaponName,
       ammo:p.ammo,
-      amount:p.amount
+      amount:p.amount,
+      born:p.born
     }))
   };
 }
