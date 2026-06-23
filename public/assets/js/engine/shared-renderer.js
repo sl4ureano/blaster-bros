@@ -451,10 +451,15 @@
         drawBasicEnemy(w,h,c,e.facing||1);
       }
       ctx.restore();
-      if(e.boss){
-        ctx.fillStyle="#000"; ctx.fillRect(sx-14,sy-20,w+28,8);
-        ctx.fillStyle="#ff5a7a"; ctx.fillRect(sx-14,sy-20,(w+28)*Math.max(0,e.hp/e.maxHp),8);
-      }
+      const barW=e.boss?w+34:Math.max(34,Math.min(58,w+14));
+      const barH=e.boss?8:5;
+      const barX=sx+w/2-barW/2;
+      const barY=sy-(e.boss?20:12);
+      const hpRatio=Math.max(0,Math.min(1,(e.hp||0)/(e.maxHp||e.hp||1)));
+      ctx.fillStyle="rgba(0,0,0,.82)"; ctx.fillRect(barX,barY,barW,barH);
+      ctx.fillStyle=hpRatio>.55?"#57e389":hpRatio>.25?"#ffe66d":"#ff5a7a";
+      ctx.fillRect(barX+1,barY+1,(barW-2)*hpRatio,barH-2);
+      ctx.strokeStyle="rgba(255,255,255,.35)"; ctx.lineWidth=1; ctx.strokeRect(barX,barY,barW,barH);
     }
 
     function drawHero(p){

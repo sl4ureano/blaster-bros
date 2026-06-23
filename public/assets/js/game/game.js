@@ -1327,6 +1327,59 @@ function nearestPlayer(e){
   return best;
 }
 
+function enemyAiProfile(e){
+  const ranged = new Set(["gunner","sniper","spitter","mortar","bomber","laserbot","shocker","turretbot","grenadier","poisoner","minebot","flametrooper","cryotrooper","teleport","mimic","summoner","medic"]);
+  const flyers = new Set(["drone","bat","skull","phantom","jetpack"]);
+  const assassins = new Set(["ninja","samurai","charger","leaper","spider"]);
+
+  if(e.boss) return {min:190,max:360,pace:.78,strafe:true};
+  if(ranged.has(e.type)) return {min:250,max:430,pace:.72,strafe:true};
+  if(flyers.has(e.type)) return {min:155,max:285,pace:.82,strafe:true};
+  if(assassins.has(e.type)) return {min:95,max:175,pace:.95,strafe:false};
+  if(e.type === "bruiser" || e.type === "shielder") return {min:85,max:145,pace:.72,strafe:false};
+  return {min:75,max:140,pace:.82,strafe:false};
+}
+
+function enemyMoveIntent(e, target, dx, dy, ad){
+  e.ai = e.ai || {};
+  const profile = enemyAiProfile(e);
+  const dirToPlayer = dx >= 0 ? 1 : -1;
+  const verticalGap = Math.abs(dy);
+  let dir = 0;
+
+  if(verticalGap > 150 && ad < profile.max + 120) {
+    dir = dirToPlayer;
+  } else if(ad < profile.min) {
+    dir = -dirToPlayer;
+  } else if(ad > profile.max) {
+    dir = dirToPlayer;
+  } else if(profile.strafe) {
+    e.ai.strafeTimer = Math.max(0, (e.ai.strafeTimer || 0) - 1);
+    if(!e.ai.strafeTimer) {
+      e.ai.strafeDir = Math.random() < .5 ? -1 : 1;
+      e.ai.strafeTimer = Math.floor(rand(55, 115));
+    }
+    dir = e.ai.strafeDir * .38;
+  }
+
+  return {dir, pace:profile.pace, dirToPlayer};
+}
+
+function applyEnemySpacing(e){
+  if(e.boss) return;
+  let push = 0;
+  for(const other of game.enemies){
+    if(other === e || !other.alive || other.hp <= 0 || other.boss) continue;
+    const dx = (e.x + e.w/2) - (other.x + other.w/2);
+    const dy = Math.abs((e.y + e.h/2) - (other.y + other.h/2));
+    const minDist = (e.w + other.w) * .62;
+    if(dy < 46 && Math.abs(dx) > 0 && Math.abs(dx) < minDist) {
+      push += Math.sign(dx) * (minDist - Math.abs(dx)) * .012;
+    }
+  }
+  e.vx += clamp(push, -1.1, 1.1);
+}
+
 function separateEnemyFromPlayer(e,p){
   const ex=e.x+e.w/2, ey=e.y+e.h/2;
   const px=p.x+p.w/2, py=p.y+p.h/2;
@@ -1393,8 +1446,6 @@ function enemyContactDamage(e){
     boss_mecha: 70,
     boss_final: 90
   };
-  if(e.type === "ninja" && Math.random() < .18) return 999; // golpe crítico mortal raro
-  if(e.type === "samurai" && Math.random() < .12) return 999; // corte mortal raro
   return table[e.type] || (e.boss ? 50 : 13);
 }
 
@@ -1581,7 +1632,8 @@ function updateEnemy(e){
   const t=nearestPlayer(e);
   if(!t)return;
   const ec=center(e), tc=center(t), dx=tc.x-ec.x, dy=tc.y-ec.y, ad=Math.abs(dx), d=Math.hypot(dx,dy);
-  e.facing=dx>=0?1:-1;
+  const intent = enemyMoveIntent(e,t,dx,dy,ad);
+  e.facing=intent.dirToPlayer;
   e.phase+=0.04;
   e.vy+=GRAVITY; e.vy=Math.min(e.vy,18);
 
@@ -1591,38 +1643,46 @@ function updateEnemy(e){
     if(e.onGround && e.repelTimer === 18 && !e.boss) e.vy = -8;
   } else {
   switch(e.type){
-    case "runner": e.vx=e.facing*e.speed; break;
-    case "crawler": e.vx=e.facing*e.speed*1.25; break;
-    case "ninja": e.vx=e.facing*e.speed; if(e.onGround&&ad<340&&Math.random()<.025)e.vy=-13; break;
-    case "jetpack": e.vx=e.facing*e.speed; e.vy+=Math.sin(e.phase)*.7 - .52; break;
+    case "runner": e.vx=intent.dir*e.speed*intent.pace; break;
+    case "crawler": e.vx=intent.dir*e.speed*1.05*intent.pace; break;
+    case "ninja": e.vx=intent.dir*e.speed*intent.pace; if(e.onGround&&ad>95&&ad<340&&Math.random()<.02)e.vy=-13; break;
+    case "jetpack": e.vx=intent.dir*e.speed*intent.pace; e.vy+=Math.sin(e.phase)*.7 - .52; break;
     case "drone":
     case "bat":
     case "skull":
     case "phantom":
-      e.vx=e.facing*e.speed; e.vy=Math.sin(e.phase*1.7)*2.4 - .18; break;
+      e.vx=intent.dir*e.speed*intent.pace; e.vy=Math.sin(e.phase*1.7)*2.4 - .18 + clamp(dy * .006, -1.1, 1.1); break;
     case "shielder":
     case "turretbot":
-      e.vx=ad>220?e.facing*e.speed:0; break;
+      e.vx=intent.dir*e.speed*intent.pace; break;
     case "leaper":
     case "spider":
-      e.vx=e.facing*e.speed; if(e.onGround&&ad<360&&Math.random()<.035)e.vy=-13.5; break;
+      e.vx=intent.dir*e.speed*intent.pace; if(e.onGround&&ad>95&&ad<360&&Math.random()<.026)e.vy=-13.5; break;
     case "charger":
-      e.vx=e.facing*(ad<520?e.speed*1.8:e.speed*.55); break;
+      e.ai.chargeCd = Math.max(0, (e.ai.chargeCd || 0) - 1);
+      if(ad > 120 && ad < 500 && e.ai.chargeCd <= 0) {
+        e.vx=e.facing*e.speed*1.75;
+        e.ai.chargeCd = 90;
+      } else {
+        e.vx=intent.dir*e.speed*.72;
+      }
+      break;
     case "bruiser":
-      e.vx=ad>180?e.facing*e.speed:0; break;
+      e.vx=intent.dir*e.speed*intent.pace; break;
     case "teleport":
-      e.vx=e.facing*e.speed*.65; if(ad<500&&Math.random()<.012){e.x=clamp(t.x- e.facing*rand(120,220),0,game.level.width-e.w); burst(e.x,e.y,"#d386ff",18);} break;
+      e.vx=intent.dir*e.speed*.65; if(ad<500&&ad>150&&Math.random()<.008){e.x=clamp(t.x- e.facing*rand(190,280),0,game.level.width-e.w); burst(e.x,e.y,"#d386ff",18);} break;
     case "samurai":
-      e.vx=e.facing*e.speed; if(e.onGround&&ad<300&&Math.random()<.025)e.vy=-10; break;
+      e.vx=intent.dir*e.speed*intent.pace; if(e.onGround&&ad>95&&ad<300&&Math.random()<.018)e.vy=-10; break;
     case "boss_blob":
     case "boss_spider":
-      e.vx=e.facing*e.speed; if(e.onGround&&Math.random()<.012)e.vy=-12; break;
+      e.vx=intent.dir*e.speed*intent.pace; if(e.onGround&&Math.random()<.01)e.vy=-12; break;
     case "boss_dragon":
-      e.vx=e.facing*e.speed; e.vy+=Math.sin(e.phase)*.42-.2; break;
+      e.vx=intent.dir*e.speed*intent.pace; e.vy+=Math.sin(e.phase)*.42-.2; break;
     case "boss_train":
-      e.vx=e.facing*e.speed*1.25; break;
-    default: e.vx=ad>280?e.facing*e.speed:0;
+      e.vx=intent.dir*e.speed*.95; break;
+    default: e.vx=intent.dir*e.speed*intent.pace;
   }
+  applyEnemySpacing(e);
   }
   e.cd--;
   if(e.cd<=0){
@@ -2470,12 +2530,18 @@ function drawPixelEnemy(e){
     drawEnemySoldierSprite(e,w,h,c);
   }
 
-  if(e.boss){
-    ctx.fillStyle="#000";
-    ctx.fillRect(-w/2-14,-h/2-20,w+28,8);
-    ctx.fillStyle="#ff5a7a";
-    ctx.fillRect(-w/2-14,-h/2-20,(w+28)*(e.hp/e.maxHp),8);
-  }
+  const barW = e.boss ? w + 34 : Math.max(34, Math.min(58, w + 14));
+  const barH = e.boss ? 8 : 5;
+  const barX = -barW / 2;
+  const barY = -h / 2 - (e.boss ? 20 : 12);
+  const hpRatio = Math.max(0, Math.min(1, (e.hp || 0) / (e.maxHp || e.hp || 1)));
+  ctx.fillStyle="rgba(0,0,0,.82)";
+  ctx.fillRect(barX,barY,barW,barH);
+  ctx.fillStyle=hpRatio > .55 ? "#57e389" : hpRatio > .25 ? "#ffe66d" : "#ff5a7a";
+  ctx.fillRect(barX+1,barY+1,(barW-2)*hpRatio,barH-2);
+  ctx.strokeStyle="rgba(255,255,255,.35)";
+  ctx.lineWidth=1;
+  ctx.strokeRect(barX,barY,barW,barH);
 
   ctx.restore();
 }
